@@ -222,6 +222,11 @@ final class TodoFileStore {
     private init() {}
 
     private let defaultFileName = "todo.txt"
+    private enum LoadedEntry {
+        case task(UUID)
+        case raw(String)
+    }
+    private var loadedEntries: [LoadedEntry] = []
 
     private var internalURL: URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
@@ -254,12 +259,17 @@ final class TodoFileStore {
         ensureFileExists()
         let url = effectiveURL()
         let content: String = try withSecurityScope(url: url) {
-            try String(contentsOf: url)
+            try String(contentsOf: url, encoding: .utf8)
         }
         var tasks: [TodoTask] = []
+        loadedEntries = []
         for line in content.split(whereSeparator: { $0.isNewline }) {
-            if let task = try? TodoParser.parse(line: String(line)) {
+            let rawLine = String(line)
+            if let task = try? TodoParser.parse(line: rawLine) {
                 tasks.append(task)
+                loadedEntries.append(.task(task.id))
+            } else {
+                loadedEntries.append(.raw(rawLine))
             }
         }
         return tasks
@@ -267,7 +277,35 @@ final class TodoFileStore {
 
     func save(_ tasks: [TodoTask]) throws {
         let url = effectiveURL()
-        let text = tasks.map { TodoParser.serialize($0) }.joined(separator: "\n").appending("\n")
+        var remainingById: [UUID: TodoTask] = [:]
+        for task in tasks { remainingById[task.id] = task }
+
+        var lines: [String] = []
+        var newLoadedEntries: [LoadedEntry] = []
+        for entry in loadedEntries {
+            switch entry {
+            case .raw(let line):
+                lines.append(line)
+                newLoadedEntries.append(.raw(line))
+            case .task(let id):
+                if let task = remainingById.removeValue(forKey: id) {
+                    let serialized = TodoParser.serialize(task)
+                    lines.append(serialized)
+                    newLoadedEntries.append(.task(task.id))
+                }
+            }
+        }
+
+        for task in tasks where remainingById[task.id] != nil {
+            let serialized = TodoParser.serialize(task)
+            lines.append(serialized)
+            newLoadedEntries.append(.task(task.id))
+            remainingById.removeValue(forKey: task.id)
+        }
+
+        loadedEntries = newLoadedEntries
+
+        let text = lines.joined(separator: "\n").appending("\n")
         try withSecurityScope(url: url) {
             try text.write(to: url, atomically: true, encoding: .utf8)
         }
@@ -301,6 +339,16 @@ final class TodoListViewModel: ObservableObject {
 
     func delete(at offsets: IndexSet) {
         tasks.remove(atOffsets: offsets)
+        save()
+    }
+
+    func deleteVisible(at offsets: IndexSet) {
+        let visible = visibleTasks
+        let idsToDelete: Set<UUID> = Set(offsets.compactMap { index in
+            guard visible.indices.contains(index) else { return nil }
+            return visible[index].id
+        })
+        tasks.removeAll { idsToDelete.contains($0.id) }
         save()
     }
 
@@ -410,7 +458,7 @@ struct ContentView: View {
                             .tint(.blue)
                         }
                     }
-                    .onDelete(perform: vm.delete)
+                    .onDelete(perform: vm.deleteVisible)
                 }
 
                 HStack {
