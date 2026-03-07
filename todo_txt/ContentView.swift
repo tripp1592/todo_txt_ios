@@ -416,73 +416,131 @@ struct ContentView: View {
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 0) {
-                Picker("Filter", selection: $vm.filter) {
-                    Text("Open").tag(TodoListViewModel.Filter.open)
-                    Text("Done").tag(TodoListViewModel.Filter.done)
-                    Text("All").tag(TodoListViewModel.Filter.all)
-                }
-                .pickerStyle(.segmented)
-                .padding([.horizontal, .top])
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.98, green: 0.99, blue: 1.0),
+                        Color(red: 0.92, green: 0.95, blue: 0.98)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
 
-                List {
-                    ForEach(vm.visibleTasks) { task in
-                        HStack(alignment: .firstTextBaseline) {
-                            Button(action: { vm.toggle(task) }) {
-                                Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
-                            }
-                            .buttonStyle(.plain)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(rowText(for: task))
-                                    .font(.body.monospaced())
-                                HStack(spacing: 8) {
-                                    if let p = task.priority { Text("(\(p))").font(.caption).padding(4).overlay(RoundedRectangle(cornerRadius: 4).stroke()) }
-                                    if let c = task.creationDate { Text("created \(TodoParser.dateFormatter.string(from: c))").font(.caption) }
-                                    if let d = task.completionDate, task.completed { Text("done \(TodoParser.dateFormatter.string(from: d))").font(.caption) }
+                VStack(spacing: 14) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("todo.txt")
+                            .font(.system(size: 40, weight: .black, design: .rounded))
+                        Text("\(vm.visibleTasks.count) visible of \(vm.tasks.count) total")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+
+                    Picker("Filter", selection: $vm.filter) {
+                        Text("Open").tag(TodoListViewModel.Filter.open)
+                        Text("Done").tag(TodoListViewModel.Filter.done)
+                        Text("All").tag(TodoListViewModel.Filter.all)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(6)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .padding(.horizontal)
+
+                    List {
+                        ForEach(vm.visibleTasks) { task in
+                            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                Button(action: { vm.toggle(task) }) {
+                                    Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
+                                        .font(.title3)
+                                        .foregroundStyle(task.completed ? .green : .indigo)
+                                }
+                                .buttonStyle(.plain)
+
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(rowText(for: task))
+                                        .font(.body.monospaced())
+                                        .foregroundStyle(task.completed ? .secondary : .primary)
+
+                                    HStack(spacing: 8) {
+                                        if let p = task.priority {
+                                            Text(verbatim: "(\(p))")
+                                                .font(.caption.weight(.semibold))
+                                                .padding(.horizontal, 7)
+                                                .padding(.vertical, 4)
+                                                .background(Color.indigo.opacity(0.14), in: Capsule())
+                                        }
+                                        if let c = task.creationDate {
+                                            Text("created \(TodoParser.dateFormatter.string(from: c))")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        if let d = task.completionDate, task.completed {
+                                            Text("done \(TodoParser.dateFormatter.string(from: d))")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
                                 }
                             }
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
-                                vm.deleteTask(task)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
+                            .padding(.vertical, 8)
+                            .padding(.horizontal, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(.ultraThinMaterial)
+                            )
+                            .listRowInsets(EdgeInsets(top: 7, leading: 14, bottom: 7, trailing: 14))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    vm.deleteTask(task)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .swipeActions(edge: .leading) {
+                                Button {
+                                    editingTask = task
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                .tint(.blue)
                             }
                         }
-                        .swipeActions(edge: .leading) {
-                            Button {
-                                editingTask = task
-                            } label: {
-                                Label("Edit", systemImage: "pencil")
-                            }
-                            .tint(.blue)
+                        .onDelete(perform: vm.deleteVisible)
+                    }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+
+                    HStack(spacing: 10) {
+                        TextField("(A) 2025-08-11 Your task +Project @context due:2025-09-01", text: $newLine)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled(true)
+                            .font(.body.monospaced())
+                            .onSubmit(commitNew)
+
+                        Button(action: { commitNew() }) {
+                            Image(systemName: "plus")
+                                .imageScale(.large)
+                                .font(.title3.weight(.bold))
                         }
+                        .accessibilityLabel("Add task")
+                        .keyboardShortcut(.defaultAction)
                     }
-                    .onDelete(perform: vm.deleteVisible)
-                }
+                    .padding(12)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .padding(.horizontal)
 
-                HStack {
-                    TextField("(A) 2025-08-11 Your task +Project @context due:2025-09-01", text: $newLine)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-                        .font(.body.monospaced())
-                        .onSubmit(commitNew)
-                    Button(action: { commitNew() }) {
-                        Image(systemName: "plus")
-                            .imageScale(.large)
-                            .font(.title3)
-                    }
-                    .accessibilityLabel("Add task")
-                    .keyboardShortcut(.defaultAction)
+                    Text("File: \(TodoFileStore.shared.fileURL().lastPathComponent)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.bottom, 6)
                 }
-                .padding()
-
-                Text("File: \(TodoFileStore.shared.fileURL().lastPathComponent)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.bottom, 6)
             }
-            .navigationTitle("todo.txt")
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button { showImporter = true } label: {
