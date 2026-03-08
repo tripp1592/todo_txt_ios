@@ -405,6 +405,30 @@ final class TodoListViewModel: ObservableObject {
         load()
     }
 
+    func seedStarterTasksIfNeeded() {
+        guard tasks.isEmpty else { return }
+        let now = Date()
+        let today = TodoParser.dateFormatter.string(from: now)
+        let yesterday = TodoParser.dateFormatter.string(
+            from: Calendar(identifier: .gregorian).date(byAdding: .day, value: -1, to: now) ?? now
+        )
+        let samples = [
+            "(B) \(today) Review your priorities +planning",
+            "Capture one quick task +inbox @phone",
+            "x \(today) \(yesterday) Archive old note +cleanup"
+        ]
+
+        var seeded: [TodoTask] = []
+        for line in samples {
+            if let task = try? TodoParser.parse(line: line) {
+                seeded.append(task)
+            }
+        }
+        guard !seeded.isEmpty else { return }
+        tasks.append(contentsOf: seeded)
+        save()
+    }
+
     func update(_ task: TodoTask, with rawLine: String) -> Bool {
         guard let idx = tasks.firstIndex(of: task) else { return false }
         guard let parsed = try? TodoParser.parse(line: rawLine) else { return false }
@@ -436,8 +460,13 @@ final class TodoListViewModel: ObservableObject {
 // MARK: - View
 struct ContentView: View {
     @StateObject private var vm = TodoListViewModel()
+    @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
     @State private var newLine: String = ""
     @State private var showImporter = false
+    @State private var showSettings = false
+    @State private var showOnboarding = false
+    @State private var openImporterAfterOnboarding = false
+    @State private var didRunInitialSetup = false
     @State private var alertText: String?
     @State private var editingTask: TodoTask?
 
@@ -552,10 +581,10 @@ struct ContentView: View {
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Button("Use App Documents/todo.txt") { vm.clearExternalURL() }
+                    Button {
+                        showSettings = true
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: "gearshape")
                     }
                 }
             }
@@ -570,8 +599,41 @@ struct ContentView: View {
                     onDismiss: { editingTask = nil }
                 )
             }
+            .sheet(isPresented: $showOnboarding) {
+                FirstLaunchSheet(
+                    onUseLocal: {
+                        vm.clearExternalURL()
+                        vm.seedStarterTasksIfNeeded()
+                        hasSeenOnboarding = true
+                        showOnboarding = false
+                    },
+                    onImportExistingFile: {
+                        openImporterAfterOnboarding = true
+                        hasSeenOnboarding = true
+                        showOnboarding = false
+                    }
+                )
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsSheet(
+                    currentFileName: TodoFileStore.shared.fileURL().lastPathComponent,
+                    onChooseFile: {
+                        showSettings = false
+                        showImporter = true
+                    },
+                    onUseLocalFile: {
+                        vm.clearExternalURL()
+                        showSettings = false
+                    }
+                )
+            }
         }
-        .onAppear { TodoFileStore.shared.ensureFileExists() }
+        .onAppear { runInitialSetupIfNeeded() }
+        .onChange(of: showOnboarding) { _, isShowing in
+            guard !isShowing, openImporterAfterOnboarding else { return }
+            openImporterAfterOnboarding = false
+            showImporter = true
+        }
         .fileImporter(
             isPresented: $showImporter,
             allowedContentTypes: [UTType.plainText],
@@ -618,6 +680,15 @@ struct ContentView: View {
         return "-"
     }
 
+    private func runInitialSetupIfNeeded() {
+        guard !didRunInitialSetup else { return }
+        didRunInitialSetup = true
+        TodoFileStore.shared.ensureFileExists()
+        if !hasSeenOnboarding {
+            showOnboarding = true
+        }
+    }
+
     private func commitNew() {
         let line = newLine.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty else { return }
@@ -625,6 +696,56 @@ struct ContentView: View {
             alertText = errorMsg
         } else {
             newLine = ""
+        }
+    }
+}
+
+struct SettingsSheet: View {
+    let currentFileName: String
+    let onChooseFile: () -> Void
+    let onUseLocalFile: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("File") {
+                    LabeledContent("Current", value: currentFileName)
+                    Button("Choose .txt File", action: onChooseFile)
+                    Button("Use App Documents/todo.txt", action: onUseLocalFile)
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+struct FirstLaunchSheet: View {
+    let onUseLocal: () -> Void
+    let onImportExistingFile: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Choose how to start")
+                    .font(.headline)
+                Text("You can start with a local `todo.txt` in this app, or import your existing file.")
+                    .foregroundStyle(.secondary)
+                Button(action: onUseLocal) {
+                    Label("Start with local todo.txt", systemImage: "doc.text")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                Button(action: onImportExistingFile) {
+                    Label("Import existing .txt file", systemImage: "square.and.arrow.down")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Welcome")
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }
