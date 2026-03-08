@@ -221,6 +221,16 @@ final class TodoFileStore {
     private init() {}
 
     private let defaultFileName = "todo.txt"
+    enum StoreError: LocalizedError {
+        case iCloudUnavailable
+
+        var errorDescription: String? {
+            switch self {
+            case .iCloudUnavailable:
+                return "iCloud is unavailable. Enable iCloud Drive for this app in Signing & Capabilities."
+            }
+        }
+    }
     private enum LoadedEntry {
         case task(UUID)
         case raw(String)
@@ -319,6 +329,39 @@ final class TodoFileStore {
         }
     }
 
+    func appendToArchive(_ tasks: [TodoTask]) throws {
+        guard !tasks.isEmpty else { return }
+        let archiveURL = effectiveURL().deletingLastPathComponent().appendingPathComponent("done.txt")
+        let chunk = tasks.map(TodoParser.serialize).joined(separator: "\n").appending("\n")
+        try withSecurityScope(url: archiveURL) {
+            if FileManager.default.fileExists(atPath: archiveURL.path) {
+                let handle = try FileHandle(forWritingTo: archiveURL)
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                if let data = chunk.data(using: .utf8) {
+                    try handle.write(contentsOf: data)
+                }
+            } else {
+                try chunk.write(to: archiveURL, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
+    @discardableResult
+    func configureICloudTodoFile() throws -> URL {
+        guard let containerURL = FileManager.default.url(forUbiquityContainerIdentifier: nil) else {
+            throw StoreError.iCloudUnavailable
+        }
+        let documentsURL = containerURL.appendingPathComponent("Documents", isDirectory: true)
+        try FileManager.default.createDirectory(at: documentsURL, withIntermediateDirectories: true)
+        let todoURL = documentsURL.appendingPathComponent(defaultFileName)
+        if !FileManager.default.fileExists(atPath: todoURL.path) {
+            try "".write(to: todoURL, atomically: true, encoding: .utf8)
+        }
+        setExternalURL(todoURL)
+        return todoURL
+    }
+
     func fileURL() -> URL { effectiveURL() }
 }
 
@@ -327,9 +370,16 @@ final class TodoFileStore {
 final class TodoListViewModel: ObservableObject {
     @Published private(set) var tasks: [TodoTask] = []
     @Published var filter: Filter = .open
+    @Published var sort: Sort = .priority
     @Published var lastError: String?
 
     enum Filter: String, CaseIterable, Identifiable { case open, done, all; var id: String { rawValue } }
+    enum Sort: String, CaseIterable, Identifiable {
+        case priority
+        case newestDate
+        case text
+        var id: String { rawValue }
+    }
 
     init() { load() }
 
@@ -380,9 +430,11 @@ final class TodoListViewModel: ObservableObject {
         }
     }
 
-    func toggle(_ task: TodoTask) {
-        guard let idx = tasks.firstIndex(of: task) else { return }
+    @discardableResult
+    func toggle(_ task: TodoTask) -> Bool {
+        guard let idx = tasks.firstIndex(of: task) else { return false }
         var t = tasks[idx]
+        var justCompleted = false
         if t.completed {
             t.completed = false
             t.completionDate = nil
@@ -390,9 +442,11 @@ final class TodoListViewModel: ObservableObject {
             t.completed = true
             t.completionDate = Date()
             t.priority = nil
+            justCompleted = true
         }
         tasks[idx] = t
         save()
+        return justCompleted
     }
 
     func setExternalURL(_ url: URL) {
@@ -402,6 +456,11 @@ final class TodoListViewModel: ObservableObject {
 
     func clearExternalURL() {
         TodoFileStore.shared.setExternalURL(nil)
+        load()
+    }
+
+    func enableICloudSync() throws {
+        _ = try TodoFileStore.shared.configureICloudTodoFile()
         load()
     }
 
@@ -448,11 +507,49 @@ final class TodoListViewModel: ObservableObject {
         return true
     }
 
+    @discardableResult
+    func archiveCompleted() -> Int {
+        let completed = tasks.filter { $0.completed }
+        guard !completed.isEmpty else { return 0 }
+        do {
+            try TodoFileStore.shared.appendToArchive(completed)
+            tasks.removeAll { $0.completed }
+            save()
+            return completed.count
+        } catch {
+            lastError = "Failed to archive: \(error.localizedDescription)"
+            return 0
+        }
+    }
+
     var visibleTasks: [TodoTask] {
+        let filtered: [TodoTask]
         switch filter {
-        case .open: return tasks.filter { !$0.completed }
-        case .done: return tasks.filter { $0.completed }
-        case .all: return tasks
+        case .open: filtered = tasks.filter { !$0.completed }
+        case .done: filtered = tasks.filter { $0.completed }
+        case .all: filtered = tasks
+        }
+
+        switch sort {
+        case .priority:
+            return filtered.sorted { lhs, rhs in
+                if lhs.completed != rhs.completed { return !lhs.completed }
+                let leftPriority = lhs.priority.map { Int($0.asciiValue ?? 91) } ?? 999
+                let rightPriority = rhs.priority.map { Int($0.asciiValue ?? 91) } ?? 999
+                if leftPriority != rightPriority { return leftPriority < rightPriority }
+                return TodoParser.restString(lhs).localizedCaseInsensitiveCompare(TodoParser.restString(rhs)) == .orderedAscending
+            }
+        case .newestDate:
+            return filtered.sorted { lhs, rhs in
+                let leftDate = lhs.completionDate ?? lhs.creationDate ?? Date.distantPast
+                let rightDate = rhs.completionDate ?? rhs.creationDate ?? Date.distantPast
+                if leftDate != rightDate { return leftDate > rightDate }
+                return TodoParser.restString(lhs).localizedCaseInsensitiveCompare(TodoParser.restString(rhs)) == .orderedAscending
+            }
+        case .text:
+            return filtered.sorted {
+                TodoParser.restString($0).localizedCaseInsensitiveCompare(TodoParser.restString($1)) == .orderedAscending
+            }
         }
     }
 }
@@ -461,6 +558,9 @@ final class TodoListViewModel: ObservableObject {
 struct ContentView: View {
     @StateObject private var vm = TodoListViewModel()
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
+    @AppStorage("defaultPriority") private var defaultPriorityRaw = ""
+    @AppStorage("autoArchiveOnComplete") private var autoArchiveOnComplete = false
+    @AppStorage("iCloudSyncEnabled") private var iCloudSyncEnabled = false
     @State private var newLine: String = ""
     @State private var showImporter = false
     @State private var showSettings = false
@@ -481,7 +581,22 @@ struct ContentView: View {
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
                 .padding(.top, 8)
-                .padding(.bottom, 10)
+                .padding(.bottom, 6)
+
+                HStack {
+                    Text("Sort")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Picker("Sort", selection: $vm.sort) {
+                        Text("Priority").tag(TodoListViewModel.Sort.priority)
+                        Text("Newest").tag(TodoListViewModel.Sort.newestDate)
+                        Text("Text").tag(TodoListViewModel.Sort.text)
+                    }
+                    .pickerStyle(.menu)
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 8)
 
                 HStack(spacing: 10) {
                     Text("Done")
@@ -502,7 +617,7 @@ struct ContentView: View {
                 List {
                     ForEach(vm.visibleTasks) { task in
                         HStack(spacing: 10) {
-                            Button(action: { vm.toggle(task) }) {
+                            Button(action: { handleToggle(task) }) {
                                 Image(systemName: task.completed ? "checkmark.square.fill" : "square")
                                     .frame(width: 44, alignment: .leading)
                             }
@@ -538,6 +653,18 @@ struct ContentView: View {
                                 Label("Edit", systemImage: "pencil")
                             }
                             .tint(.blue)
+                        }
+                        .contextMenu {
+                            Button {
+                                editingTask = task
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            Button(role: .destructive) {
+                                vm.deleteTask(task)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
                         }
                     }
                     .onDelete(perform: vm.deleteVisible)
@@ -591,7 +718,6 @@ struct ContentView: View {
             .sheet(item: $editingTask) { task in
                 EditTaskSheet(
                     task: task,
-                    initialText: TodoParser.serialize(task),
                     onSave: { newRaw in
                         if vm.update(task, with: newRaw) { return nil }
                         return "Invalid todo.txt line. Check priority/date/order."
@@ -618,12 +744,20 @@ struct ContentView: View {
                 SettingsSheet(
                     currentFileName: TodoFileStore.shared.fileURL().lastPathComponent,
                     onChooseFile: {
+                        iCloudSyncEnabled = false
                         showSettings = false
                         showImporter = true
                     },
                     onUseLocalFile: {
+                        iCloudSyncEnabled = false
                         vm.clearExternalURL()
                         showSettings = false
+                    },
+                    onArchiveNow: {
+                        archiveNow()
+                    },
+                    onICloudSyncChanged: { enabled in
+                        setICloudSync(enabled)
                     }
                 )
             }
@@ -646,6 +780,7 @@ struct ContentView: View {
                     alertText = "Please choose a .txt file."
                     return
                 }
+                iCloudSyncEnabled = false
                 vm.setExternalURL(url)
             case .failure(let error):
                 alertText = error.localizedDescription
@@ -672,10 +807,10 @@ struct ContentView: View {
 
     private func dateLabel(for task: TodoTask) -> String {
         if task.completed, let completionDate = task.completionDate {
-            return TodoParser.dateFormatter.string(from: completionDate)
+            return relativeDateLabel(for: completionDate)
         }
         if let creationDate = task.creationDate {
-            return TodoParser.dateFormatter.string(from: creationDate)
+            return relativeDateLabel(for: creationDate)
         }
         return "-"
     }
@@ -683,35 +818,113 @@ struct ContentView: View {
     private func runInitialSetupIfNeeded() {
         guard !didRunInitialSetup else { return }
         didRunInitialSetup = true
-        TodoFileStore.shared.ensureFileExists()
+        if iCloudSyncEnabled {
+            setICloudSync(true)
+        } else {
+            TodoFileStore.shared.ensureFileExists()
+        }
         if !hasSeenOnboarding {
             showOnboarding = true
+        }
+    }
+
+    private func relativeDateLabel(for date: Date) -> String {
+        let calendar = Calendar(identifier: .gregorian)
+        let today = calendar.startOfDay(for: Date())
+        let targetDay = calendar.startOfDay(for: date)
+        let dayDiff = calendar.dateComponents([.day], from: targetDay, to: today).day ?? 0
+
+        if dayDiff == 0 { return "today" }
+        if dayDiff == 1 { return "1 day ago" }
+        if dayDiff > 1 && dayDiff < 30 { return "\(dayDiff) days ago" }
+        if dayDiff >= 30 && dayDiff < 365 {
+            let months = dayDiff / 30
+            return months == 1 ? "1 month ago" : "\(months) months ago"
+        }
+        return TodoParser.dateFormatter.string(from: date)
+    }
+
+    private func handleToggle(_ task: TodoTask) {
+        let justCompleted = vm.toggle(task)
+        if autoArchiveOnComplete && justCompleted {
+            _ = vm.archiveCompleted()
+        }
+    }
+
+    private func archiveNow() {
+        let count = vm.archiveCompleted()
+        if count > 0 {
+            alertText = "Archived \(count) completed task\(count == 1 ? "" : "s") to done.txt."
+        } else if vm.lastError == nil {
+            alertText = "No completed tasks to archive."
+        }
+    }
+
+    private func setICloudSync(_ enabled: Bool) {
+        if enabled {
+            do {
+                try vm.enableICloudSync()
+                iCloudSyncEnabled = true
+            } catch {
+                iCloudSyncEnabled = false
+                alertText = error.localizedDescription
+            }
+        } else {
+            iCloudSyncEnabled = false
+            vm.clearExternalURL()
         }
     }
 
     private func commitNew() {
         let line = newLine.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty else { return }
-        if let errorMsg = vm.add(line) {
+        let lineToAdd = lineWithDefaultPriorityIfNeeded(line)
+        if let errorMsg = vm.add(lineToAdd) {
             alertText = errorMsg
         } else {
             newLine = ""
         }
     }
+
+    private func lineWithDefaultPriorityIfNeeded(_ line: String) -> String {
+        guard let parsed = try? TodoParser.parse(line: line) else { return line }
+        guard !parsed.completed, parsed.priority == nil else { return line }
+        guard defaultPriorityRaw.count == 1 else { return line }
+        return "(\(defaultPriorityRaw)) \(line)"
+    }
 }
 
 struct SettingsSheet: View {
+    @AppStorage("defaultPriority") private var defaultPriorityRaw = ""
+    @AppStorage("autoArchiveOnComplete") private var autoArchiveOnComplete = false
+    @AppStorage("iCloudSyncEnabled") private var iCloudSyncEnabled = false
     let currentFileName: String
     let onChooseFile: () -> Void
     let onUseLocalFile: () -> Void
+    let onArchiveNow: () -> Void
+    let onICloudSyncChanged: (Bool) -> Void
 
     var body: some View {
         NavigationStack {
             List {
                 Section("File") {
                     LabeledContent("Current", value: currentFileName)
+                    Toggle("Sync with iCloud Drive", isOn: $iCloudSyncEnabled)
+                        .onChange(of: iCloudSyncEnabled) { _, enabled in
+                            onICloudSyncChanged(enabled)
+                        }
                     Button("Choose .txt File", action: onChooseFile)
                     Button("Use App Documents/todo.txt", action: onUseLocalFile)
+                }
+                Section("Tasks") {
+                    Picker("Default Priority", selection: $defaultPriorityRaw) {
+                        Text("None").tag("")
+                        ForEach(Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ"), id: \.self) { priority in
+                            Text(String(priority)).tag(String(priority))
+                        }
+                    }
+                    Toggle("Auto Archive Completed", isOn: $autoArchiveOnComplete)
+                    Button("Archive Now", action: onArchiveNow)
                 }
             }
             .navigationTitle("Settings")
@@ -751,31 +964,69 @@ struct FirstLaunchSheet: View {
 }
 
 struct EditTaskSheet: View {
+    private enum DateField: Identifiable {
+        case due
+        case threshold
+
+        var id: String {
+            switch self {
+            case .due: return "due"
+            case .threshold: return "threshold"
+            }
+        }
+    }
+
     let task: TodoTask
-    let initialText: String
     /// Return nil on success, or an error message string to display
     let onSave: (String) -> String?
     let onDismiss: () -> Void
 
-    @State private var text: String = ""
+    @State private var priorityRaw: String = ""
+    @State private var taskText: String = ""
+    @State private var dueDateText: String = ""
+    @State private var thresholdDateText: String = ""
+    @State private var activeDateField: DateField?
     @State private var error: String?
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Edit raw todo.txt line")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextField("", text: $text)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled(true)
-                    .font(.body.monospaced())
-                    .padding(8)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))
-                if let error { Text(error).font(.footnote).foregroundStyle(.red) }
-                Spacer()
+            Form {
+                Section("Task") {
+                    TextField("Task", text: $taskText, axis: .vertical)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                }
+                Section("Priority") {
+                    Picker("Priority", selection: $priorityRaw) {
+                        Text("None").tag("")
+                        ForEach(Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ"), id: \.self) { priority in
+                            Text(String(priority)).tag(String(priority))
+                        }
+                    }
+                }
+                Section("Dates") {
+                    Button {
+                        activeDateField = .due
+                    } label: {
+                        LabeledContent("Due", value: dueDateText.isEmpty ? "Not set" : dueDateText)
+                    }
+                    .foregroundStyle(.primary)
+
+                    Button {
+                        activeDateField = .threshold
+                    } label: {
+                        LabeledContent("Threshold", value: thresholdDateText.isEmpty ? "Not set" : thresholdDateText)
+                    }
+                    .foregroundStyle(.primary)
+                }
+                if let error {
+                    Section {
+                        Text(error)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                }
             }
-            .padding()
             .navigationTitle("Edit Task")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -784,10 +1035,12 @@ struct EditTaskSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if trimmed.isEmpty {
-                            error = "Line cannot be empty."
-                        } else if let msg = onSave(trimmed) {
+                        if let msg = validateDates() {
+                            error = msg
+                            return
+                        }
+                        let rawLine = composedRawLine()
+                        if let msg = onSave(rawLine) {
                             error = msg
                         } else {
                             onDismiss()
@@ -795,7 +1048,138 @@ struct EditTaskSheet: View {
                     }
                 }
             }
-            .onAppear { if text.isEmpty { text = initialText } }
+            .onAppear {
+                if taskText.isEmpty {
+                    taskText = task.baseDescription
+                    priorityRaw = task.priority.map(String.init) ?? ""
+                    dueDateText = task.extras["due"] ?? ""
+                    thresholdDateText = task.extras["t"] ?? ""
+                }
+            }
+            .sheet(item: $activeDateField) { field in
+                switch field {
+                case .due:
+                    DateSelectionSheet(
+                        title: "Due Date",
+                        initialDateText: dueDateText,
+                        onSave: { selected in
+                            dueDateText = selected
+                        },
+                        onClear: {
+                            dueDateText = ""
+                        }
+                    )
+                case .threshold:
+                    DateSelectionSheet(
+                        title: "Threshold Date",
+                        initialDateText: thresholdDateText,
+                        onSave: { selected in
+                            thresholdDateText = selected
+                        },
+                        onClear: {
+                            thresholdDateText = ""
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    private func validateDates() -> String? {
+        let due = dueDateText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let threshold = thresholdDateText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !due.isEmpty && TodoParser.dateFormatter.date(from: due) == nil {
+            return "Due date must use YYYY-MM-DD."
+        }
+        if !threshold.isEmpty && TodoParser.dateFormatter.date(from: threshold) == nil {
+            return "Threshold date must use YYYY-MM-DD."
+        }
+        return nil
+    }
+
+    private func composedRawLine() -> String {
+        let desc = taskText.trimmingCharacters(in: .whitespacesAndNewlines)
+        var parts: [String] = []
+
+        if task.completed {
+            parts.append("x")
+            parts.append(TodoParser.dateFormatter.string(from: task.completionDate ?? Date()))
+            if let creationDate = task.creationDate {
+                parts.append(TodoParser.dateFormatter.string(from: creationDate))
+            }
+        } else {
+            if priorityRaw.count == 1 {
+                parts.append("(\(priorityRaw))")
+            }
+            if let creationDate = task.creationDate {
+                parts.append(TodoParser.dateFormatter.string(from: creationDate))
+            }
+        }
+
+        var bodyTokens: [String] = []
+        if !desc.isEmpty {
+            bodyTokens.append(desc)
+        }
+        bodyTokens.append(contentsOf: task.projects.map { "+\($0)" })
+        bodyTokens.append(contentsOf: task.contexts.map { "@\($0)" })
+
+        var extras = task.extras
+        extras.removeValue(forKey: "due")
+        extras.removeValue(forKey: "t")
+
+        let due = dueDateText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let threshold = thresholdDateText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !due.isEmpty { extras["due"] = due }
+        if !threshold.isEmpty { extras["t"] = threshold }
+
+        bodyTokens.append(contentsOf: extras.sorted { $0.key < $1.key }.map { "\($0.key):\($0.value)" })
+        parts.append(bodyTokens.joined(separator: " "))
+        return parts.joined(separator: " ")
+    }
+}
+
+struct DateSelectionSheet: View {
+    let title: String
+    let initialDateText: String
+    let onSave: (String) -> Void
+    let onClear: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedDate: Date = Date()
+
+    var body: some View {
+        NavigationStack {
+            VStack {
+                DatePicker("", selection: $selectedDate, displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                    .labelsHidden()
+                    .padding(.horizontal)
+                Spacer()
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Clear") {
+                        onClear()
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        onSave(TodoParser.dateFormatter.string(from: selectedDate))
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                if let parsed = TodoParser.dateFormatter.date(from: initialDateText) {
+                    selectedDate = parsed
+                }
+            }
         }
     }
 }
