@@ -45,6 +45,11 @@
 			path = todo_txtUITests;
 			sourceTree = "<group>";
 		};
+		6658891F2F5CF945002A9CE7 /* docs */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = docs;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -75,6 +80,7 @@
 		664A02082E4AD9D900E613BF = {
 			isa = PBXGroup;
 			children = (
+				6658891F2F5CF945002A9CE7 /* docs */,
 				664A02132E4AD9D900E613BF /* todo_txt */,
 				664A02232E4AD9DA00E613BF /* todo_txtTests */,
 				664A022D2E4AD9DA00E613BF /* todo_txtUITests */,
@@ -109,6 +115,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				664A02132E4AD9D900E613BF /* todo_txt */,
+				6658891F2F5CF945002A9CE7 /* docs */,
 			);
 			name = todo_txt;
 			packageProductDependencies = (
