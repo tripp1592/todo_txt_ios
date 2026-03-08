@@ -93,7 +93,6 @@ struct TodoParser {
 
             let priStr = substringOptional(trimmed, match.range(at: 1))
             let priority: Character? = priStr?.first
-            if let p = priority, !("A"..."Z").contains(String(p)) { throw TodoParseError.invalidPriority }
 
             let creationDate = try dateOptional(from: trimmed, match: match, at: 2)
             let rest = substring(trimmed, match.range(at: 3))
@@ -106,7 +105,7 @@ struct TodoParser {
         var parts: [String] = []
         if task.completed {
             parts.append("x")
-            if let d = task.completionDate { parts.append(dateFormatter.string(from: d)) }
+            parts.append(dateFormatter.string(from: task.completionDate ?? Date()))
             if let cd = task.creationDate { parts.append(dateFormatter.string(from: cd)) }
             parts.append(restString(task))
         } else {
@@ -117,7 +116,7 @@ struct TodoParser {
         return parts.joined(separator: " ")
     }
 
-    private static func restString(_ task: TodoTask) -> String {
+    static func restString(_ task: TodoTask) -> String {
         var out = task.baseDescription
         if !task.projects.isEmpty { out += " " + task.projects.map { "+\($0)" }.joined(separator: " ") }
         if !task.contexts.isEmpty { out += " " + task.contexts.map { "@\($0)" }.joined(separator: " ") }
@@ -163,12 +162,12 @@ struct TodoParser {
         throw TodoParseError.invalidDate
     }
     private static func substring(_ s: String, _ range: NSRange) -> String {
-        let r = Range(range, in: s)!
+        guard let r = Range(range, in: s) else { return "" }
         return String(s[r])
     }
     private static func substringOptional(_ s: String, _ range: NSRange) -> String? {
         if range.location == NSNotFound { return nil }
-        let r = Range(range, in: s)!
+        guard let r = Range(range, in: s) else { return nil }
         return String(s[r])
     }
 }
@@ -227,13 +226,20 @@ final class TodoFileStore {
         case raw(String)
     }
     private var loadedEntries: [LoadedEntry] = []
+    private var cachedExternalURL: URL?
+    private var hasCachedExternal = false
 
     private var internalURL: URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         return docs.appendingPathComponent(defaultFileName)
     }
 
-    private var externalURL: URL? { BookmarkStore.shared.restore() }
+    private var externalURL: URL? {
+        if hasCachedExternal { return cachedExternalURL }
+        cachedExternalURL = BookmarkStore.shared.restore()
+        hasCachedExternal = true
+        return cachedExternalURL
+    }
 
     func setExternalURL(_ url: URL?) {
         if let url {
@@ -241,6 +247,8 @@ final class TodoFileStore {
         } else {
             BookmarkStore.shared.clear()
         }
+        cachedExternalURL = url
+        hasCachedExternal = true
     }
 
     private func effectiveURL() -> URL { externalURL ?? internalURL }
@@ -315,9 +323,11 @@ final class TodoFileStore {
 }
 
 // MARK: - ViewModel
+@MainActor
 final class TodoListViewModel: ObservableObject {
     @Published private(set) var tasks: [TodoTask] = []
     @Published var filter: Filter = .open
+    @Published var lastError: String?
 
     enum Filter: String, CaseIterable, Identifiable { case open, done, all; var id: String { rawValue } }
 
@@ -327,13 +337,24 @@ final class TodoListViewModel: ObservableObject {
         do { tasks = try TodoFileStore.shared.load() } catch { tasks = [] }
     }
 
-    func save() { try? TodoFileStore.shared.save(tasks) }
+    private func save() {
+        do {
+            try TodoFileStore.shared.save(tasks)
+        } catch {
+            lastError = "Failed to save: \(error.localizedDescription)"
+        }
+    }
 
-    func add(_ text: String) {
-        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        if let task = try? TodoParser.parse(line: text) {
+    /// Returns an error message on failure, nil on success.
+    func add(_ text: String) -> String? {
+        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        do {
+            let task = try TodoParser.parse(line: text)
             tasks.append(task)
             save()
+            return nil
+        } catch {
+            return error.localizedDescription
         }
     }
 
@@ -362,7 +383,14 @@ final class TodoListViewModel: ObservableObject {
     func toggle(_ task: TodoTask) {
         guard let idx = tasks.firstIndex(of: task) else { return }
         var t = tasks[idx]
-        if t.completed { t.completed = false; t.completionDate = nil } else { t.completed = true; t.completionDate = Date() }
+        if t.completed {
+            t.completed = false
+            t.completionDate = nil
+        } else {
+            t.completed = true
+            t.completionDate = Date()
+            t.priority = nil
+        }
         tasks[idx] = t
         save()
     }
@@ -377,7 +405,6 @@ final class TodoListViewModel: ObservableObject {
         load()
     }
 
-    // --- Insert update method here ---
     func update(_ task: TodoTask, with rawLine: String) -> Bool {
         guard let idx = tasks.firstIndex(of: task) else { return false }
         guard let parsed = try? TodoParser.parse(line: rawLine) else { return false }
@@ -415,7 +442,7 @@ struct ContentView: View {
     @State private var editingTask: TodoTask?
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ZStack {
                 LinearGradient(
                     colors: [
@@ -459,7 +486,7 @@ struct ContentView: View {
                                 .buttonStyle(.plain)
 
                                 VStack(alignment: .leading, spacing: 8) {
-                                    Text(rowText(for: task))
+                                    Text(TodoParser.restString(task))
                                         .font(.body.monospaced())
                                         .foregroundStyle(task.completed ? .secondary : .primary)
 
@@ -568,7 +595,7 @@ struct ContentView: View {
                         if vm.update(task, with: newRaw) { return nil }
                         return "Invalid todo.txt line. Check priority/date/order."
                     },
-                    onCancel: { editingTask = nil }
+                    onDismiss: { editingTask = nil }
                 )
             }
         }
@@ -581,7 +608,6 @@ struct ContentView: View {
             switch result {
             case .success(let urls):
                 guard let url = urls.first else { return }
-                // Accept .txt (prefer todo.txt but don’t force it)
                 guard url.pathExtension.lowercased() == "txt" else {
                     alertText = "Please choose a .txt file."
                     return
@@ -596,33 +622,20 @@ struct ContentView: View {
         } message: {
             Text(alertText ?? "")
         }
+        .alert("Error", isPresented: Binding(get: { vm.lastError != nil }, set: { if !$0 { vm.lastError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(vm.lastError ?? "")
+        }
     }
 
     private func commitNew() {
         let line = newLine.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty else { return }
-        vm.add(line)
-        newLine = ""
-    }
-
-    private func rowText(for t: TodoTask) -> String {
-        if t.completed {
-            var parts: [String] = []
-            if let cd = t.creationDate { parts.append(TodoParser.dateFormatter.string(from: cd)) }
-            parts.append(t.baseDescription)
-            if !t.projects.isEmpty { parts.append(t.projects.map { "+\($0)" }.joined(separator: " ")) }
-            if !t.contexts.isEmpty { parts.append(t.contexts.map { "@\($0)" }.joined(separator: " ")) }
-            if !t.extras.isEmpty { parts.append(t.extras.sorted { $0.key < $1.key }.map { "\($0):\($1)" }.joined(separator: " ")) }
-            return parts.joined(separator: " ")
+        if let errorMsg = vm.add(line) {
+            alertText = errorMsg
         } else {
-            var parts: [String] = []
-            if let p = t.priority { parts.append("(\(p))") }
-            if let cd = t.creationDate { parts.append(TodoParser.dateFormatter.string(from: cd)) }
-            parts.append(t.baseDescription)
-            if !t.projects.isEmpty { parts.append(t.projects.map { "+\($0)" }.joined(separator: " ")) }
-            if !t.contexts.isEmpty { parts.append(t.contexts.map { "@\($0)" }.joined(separator: " ")) }
-            if !t.extras.isEmpty { parts.append(t.extras.sorted { $0.key < $1.key }.map { "\($0):\($1)" }.joined(separator: " ")) }
-            return parts.joined(separator: " ")
+            newLine = ""
         }
     }
 }
@@ -632,13 +645,13 @@ struct EditTaskSheet: View {
     let initialText: String
     /// Return nil on success, or an error message string to display
     let onSave: (String) -> String?
-    let onCancel: () -> Void
+    let onDismiss: () -> Void
 
     @State private var text: String = ""
     @State private var error: String?
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Edit raw todo.txt line")
                     .font(.caption)
@@ -657,7 +670,7 @@ struct EditTaskSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { onCancel() }
+                    Button("Cancel") { onDismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
@@ -667,7 +680,7 @@ struct EditTaskSheet: View {
                         } else if let msg = onSave(trimmed) {
                             error = msg
                         } else {
-                            onCancel()
+                            onDismiss()
                         }
                     }
                 }

@@ -55,6 +55,183 @@ struct todo_txtTests {
         #expect(content.contains("(B) 2026-03-03 new task"))
     }
 
+    // MARK: - Parser tests
+
+    @Test
+    func parseSimpleIncompleteTask() throws {
+        let task = try TodoParser.parse(line: "Buy milk")
+        #expect(!task.completed)
+        #expect(task.priority == nil)
+        #expect(task.creationDate == nil)
+        #expect(task.baseDescription == "Buy milk")
+    }
+
+    @Test
+    func parseIncompleteWithPriority() throws {
+        let task = try TodoParser.parse(line: "(A) Buy milk")
+        #expect(!task.completed)
+        #expect(task.priority == "A")
+        #expect(task.baseDescription == "Buy milk")
+    }
+
+    @Test
+    func parseIncompleteWithPriorityAndDate() throws {
+        let task = try TodoParser.parse(line: "(B) 2026-03-01 Buy milk")
+        #expect(!task.completed)
+        #expect(task.priority == "B")
+        #expect(task.creationDate != nil)
+        #expect(task.baseDescription == "Buy milk")
+    }
+
+    @Test
+    func parseIncompleteWithDateOnly() throws {
+        let task = try TodoParser.parse(line: "2026-03-01 Buy milk")
+        #expect(!task.completed)
+        #expect(task.priority == nil)
+        #expect(task.creationDate != nil)
+        #expect(task.baseDescription == "Buy milk")
+    }
+
+    @Test
+    func parseCompletedTask() throws {
+        let task = try TodoParser.parse(line: "x 2026-03-02 2026-03-01 Buy milk")
+        #expect(task.completed)
+        #expect(task.completionDate != nil)
+        #expect(task.creationDate != nil)
+        #expect(task.priority == nil)
+        #expect(task.baseDescription == "Buy milk")
+    }
+
+    @Test
+    func parseCompletedWithoutCreationDate() throws {
+        let task = try TodoParser.parse(line: "x 2026-03-02 Buy milk")
+        #expect(task.completed)
+        #expect(task.completionDate != nil)
+        #expect(task.creationDate == nil)
+        #expect(task.baseDescription == "Buy milk")
+    }
+
+    @Test
+    func parseProjectsAndContexts() throws {
+        let task = try TodoParser.parse(line: "Buy milk +Groceries @Store")
+        #expect(task.baseDescription == "Buy milk")
+        #expect(task.projects == ["Groceries"])
+        #expect(task.contexts == ["Store"])
+    }
+
+    @Test
+    func parseMultipleProjectsAndContexts() throws {
+        let task = try TodoParser.parse(line: "Deploy app +Backend +Frontend @Work @Server")
+        #expect(task.projects == ["Backend", "Frontend"])
+        #expect(task.contexts == ["Work", "Server"])
+    }
+
+    @Test
+    func parseExtras() throws {
+        let task = try TodoParser.parse(line: "Buy milk due:2026-04-01 tag:urgent")
+        #expect(task.extras["due"] == "2026-04-01")
+        #expect(task.extras["tag"] == "urgent")
+    }
+
+    @Test
+    func parseEmptyLineThrows() {
+        #expect(throws: TodoParseError.emptyLine) {
+            try TodoParser.parse(line: "")
+        }
+    }
+
+    @Test
+    func parseWhitespaceOnlyThrows() {
+        #expect(throws: TodoParseError.emptyLine) {
+            try TodoParser.parse(line: "   ")
+        }
+    }
+
+    @Test
+    func parseCompletedWithoutDateThrows() {
+        #expect(throws: TodoParseError.invalidCompletedPrefix) {
+            try TodoParser.parse(line: "x missing date")
+        }
+    }
+
+    @Test
+    func parseBareAtOrPlusNotTreatedAsTag() throws {
+        let task = try TodoParser.parse(line: "Email @ home + work")
+        #expect(task.projects.isEmpty)
+        #expect(task.contexts.isEmpty)
+        #expect(task.baseDescription == "Email @ home + work")
+    }
+
+    // MARK: - Serialization round-trip tests
+
+    @Test
+    func roundTripSimpleTask() throws {
+        let line = "Buy milk"
+        let task = try TodoParser.parse(line: line)
+        let serialized = TodoParser.serialize(task)
+        #expect(serialized == line)
+    }
+
+    @Test
+    func roundTripWithPriority() throws {
+        let line = "(A) Buy milk"
+        let task = try TodoParser.parse(line: line)
+        let serialized = TodoParser.serialize(task)
+        #expect(serialized == line)
+    }
+
+    @Test
+    func roundTripWithPriorityAndDate() throws {
+        let line = "(B) 2026-03-01 Buy milk"
+        let task = try TodoParser.parse(line: line)
+        let serialized = TodoParser.serialize(task)
+        #expect(serialized == line)
+    }
+
+    @Test
+    func roundTripCompleted() throws {
+        let line = "x 2026-03-02 2026-03-01 Buy milk"
+        let task = try TodoParser.parse(line: line)
+        let serialized = TodoParser.serialize(task)
+        #expect(serialized == line)
+    }
+
+    @Test
+    func roundTripWithAllMetadata() throws {
+        let line = "(A) 2026-03-01 Deploy app +Backend @Work due:2026-04-01"
+        let task = try TodoParser.parse(line: line)
+        let serialized = TodoParser.serialize(task)
+        #expect(serialized == line)
+    }
+
+    @Test
+    func roundTripCompletedWithAllMetadata() throws {
+        let line = "x 2026-03-02 2026-03-01 Deploy app +Backend @Work due:2026-04-01"
+        let task = try TodoParser.parse(line: line)
+        let serialized = TodoParser.serialize(task)
+        #expect(serialized == line)
+    }
+
+    // MARK: - Toggle tests
+
+    @Test
+    func toggleClearsPriority() throws {
+        let task = try TodoParser.parse(line: "(A) 2026-03-01 Important task")
+        #expect(task.priority == "A")
+
+        var toggled = task
+        toggled.completed = true
+        toggled.completionDate = Date()
+        toggled.priority = nil // matches what toggle() now does
+
+        #expect(toggled.priority == nil)
+        let serialized = TodoParser.serialize(toggled)
+        #expect(serialized.hasPrefix("x "))
+        #expect(!serialized.contains("(A)"))
+    }
+
+    // MARK: - Helpers
+
     private func makeTempTodoFile(contents: String) throws -> URL {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
