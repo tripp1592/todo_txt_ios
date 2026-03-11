@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		669901C22F6113E800B4726C /* .gitignore in Resources */ = {isa = PBXBuildFile; fileRef = 669901C12F6113E800B4726C /* .gitignore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		664A02212E4AD9DA00E613BF /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -27,6 +31,7 @@
 		664A02112E4AD9D900E613BF /* todo_txt.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = todo_txt.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		664A02202E4AD9DA00E613BF /* todo_txtTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = todo_txtTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		664A022A2E4AD9DA00E613BF /* todo_txtUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = todo_txtUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		669901C12F6113E800B4726C /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -80,6 +85,7 @@
 		664A02082E4AD9D900E613BF = {
 			isa = PBXGroup;
 			children = (
+				669901C12F6113E800B4726C /* .gitignore */,
 				6658891F2F5CF945002A9CE7 /* docs */,
 				664A02132E4AD9D900E613BF /* todo_txt */,
 				664A02232E4AD9DA00E613BF /* todo_txtTests */,
@@ -219,6 +225,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				669901C22F6113E800B4726C /* .gitignore in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
