@@ -71,14 +71,6 @@ The project includes both unit and UI tests:
 
 The unit tests cover parser behavior, round-trip serialization, filtered deletion behavior, save behavior for unparseable lines, and archive failure recovery.
 
-## Project layout
-
-- `todo_txt/todo_txt/ContentView.swift` contains the main UI, parser, storage logic, settings, and edit flows
-- `todo_txt/todo_txt/todo_txtApp.swift` contains the app entry point
-- `todo_txt/docs/` contains format and supporting documentation
-- `todo_txt/todo_txtTests/` contains unit tests using the `Testing` framework
-- `todo_txt/todo_txtUITests/` contains UI automation tests
-
 ## Repository
 
 GitHub: <https://github.com/tripp1592/todo_txt_ios>
