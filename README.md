@@ -1,8 +1,8 @@
 # todo_txt_ios
 
-`todo_txt_ios` is a SwiftUI iPhone app for working with a plain text `todo.txt` file.
+`todo_txt_ios` is an ios app for working with a plain text `todo.txt` file.
 
-It stays close to the `todo.txt` format instead of introducing a database or proprietary store. Tasks live in a text file, and the app provides a native iOS interface for adding, editing, sorting, filtering, completing, and archiving them.
+It stays follows the `todo.txt` format. Tasks live in a text file interface for adding, editing, sorting, filtering, completing, and archiving them.
 
 ## Why this app
 
@@ -50,9 +50,6 @@ This project follows the core `todo.txt` conventions:
 
 Reference: [`todo_txt/docs/todo_txt_format.md`](todo_txt/docs/todo_txt_format.md)
 
-## Screenshot
-
-![todo_txt_ios screenshot](todo_txt/Gemini_Generated_Image_34b1ly34b1ly34b1.png)
 
 ## Running locally
 
