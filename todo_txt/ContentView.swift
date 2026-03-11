@@ -6,6 +6,10 @@
 import SwiftUI
 import Foundation
 import UniformTypeIdentifiers
+import UserNotifications
+#if os(iOS)
+import UIKit
+#endif
 
 // MARK: - Model
 struct TodoTask: Identifiable, Equatable {
@@ -122,6 +126,10 @@ struct TodoParser {
         if !task.contexts.isEmpty { out += " " + task.contexts.map { "@\($0)" }.joined(separator: " ") }
         if !task.extras.isEmpty { out += " " + task.extras.sorted { $0.key < $1.key }.map { "\($0):\($1)" }.joined(separator: " ") }
         return out
+    }
+
+    static func parseRest(_ rest: String) -> (String, [String], [String], [String: String]) {
+        splitRest(rest)
     }
 
     private static func splitRest(_ rest: String) -> (String, [String], [String], [String:String]) {
@@ -387,11 +395,14 @@ final class TodoListViewModel: ObservableObject {
         do { tasks = try TodoFileStore.shared.load() } catch { tasks = [] }
     }
 
-    private func save() {
+    @discardableResult
+    private func save() -> Bool {
         do {
             try TodoFileStore.shared.save(tasks)
+            return true
         } catch {
             lastError = "Failed to save: \(error.localizedDescription)"
+            return false
         }
     }
 
@@ -513,8 +524,12 @@ final class TodoListViewModel: ObservableObject {
         guard !completed.isEmpty else { return 0 }
         do {
             try TodoFileStore.shared.appendToArchive(completed)
-            tasks.removeAll { $0.completed }
-            save()
+            let remainingTasks = tasks.filter { !$0.completed }
+            tasks = remainingTasks
+            guard save() else {
+                tasks.append(contentsOf: completed)
+                return 0
+            }
             return completed.count
         } catch {
             lastError = "Failed to archive: \(error.localizedDescription)"
@@ -598,47 +613,22 @@ struct ContentView: View {
                 .padding(.horizontal)
                 .padding(.bottom, 8)
 
-                HStack(spacing: 10) {
-                    Text("Done")
-                        .frame(width: 44, alignment: .leading)
-                    Text("Pri")
-                        .frame(width: 34, alignment: .leading)
-                    Text("Task")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Text("Date")
-                        .frame(width: 92, alignment: .trailing)
-                }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                .background(Color(.secondarySystemBackground))
-
                 List {
                     ForEach(vm.visibleTasks) { task in
                         HStack(spacing: 10) {
                             Button(action: { handleToggle(task) }) {
                                 Image(systemName: task.completed ? "checkmark.square.fill" : "square")
-                                    .frame(width: 44, alignment: .leading)
+                                    .frame(width: 28, alignment: .leading)
                             }
                             .buttonStyle(.plain)
                             .tint(task.completed ? .green : .secondary)
 
-                            Text(priorityLabel(for: task))
-                                .frame(width: 34, alignment: .leading)
-                                .foregroundStyle(.secondary)
-
-                            Text(TodoParser.restString(task))
+                            Text(canonicalDisplayLine(for: task))
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
                                 .foregroundStyle(task.completed ? .secondary : .primary)
-
-                            Text(dateLabel(for: task))
-                                .frame(width: 92, alignment: .trailing)
-                                .foregroundStyle(.secondary)
                         }
                         .font(.body.monospaced())
+                        .padding(.vertical, 4)
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button(role: .destructive) {
                                 vm.deleteTask(task)
@@ -798,21 +788,8 @@ struct ContentView: View {
         }
     }
 
-    private func priorityLabel(for task: TodoTask) -> String {
-        if let priority = task.priority {
-            return String(priority)
-        }
-        return "-"
-    }
-
-    private func dateLabel(for task: TodoTask) -> String {
-        if task.completed, let completionDate = task.completionDate {
-            return relativeDateLabel(for: completionDate)
-        }
-        if let creationDate = task.creationDate {
-            return relativeDateLabel(for: creationDate)
-        }
-        return "-"
+    private func canonicalDisplayLine(for task: TodoTask) -> String {
+        TodoParser.serialize(task)
     }
 
     private func runInitialSetupIfNeeded() {
@@ -895,9 +872,38 @@ struct ContentView: View {
 }
 
 struct SettingsSheet: View {
+    private enum NotificationPermissionState {
+        case unknown
+        case notDetermined
+        case denied
+        case authorized
+        case provisional
+        case ephemeral
+
+        var description: String {
+            switch self {
+            case .unknown:
+                return "Checking status"
+            case .notDetermined:
+                return "Not enabled"
+            case .denied:
+                return "Disabled in Settings"
+            case .authorized:
+                return "Alerts and badges enabled"
+            case .provisional:
+                return "Provisionally allowed"
+            case .ephemeral:
+                return "Temporarily allowed"
+            }
+        }
+    }
+
     @AppStorage("defaultPriority") private var defaultPriorityRaw = ""
     @AppStorage("autoArchiveOnComplete") private var autoArchiveOnComplete = false
     @AppStorage("iCloudSyncEnabled") private var iCloudSyncEnabled = false
+    @Environment(\.openURL) private var openURL
+    @State private var notificationPermissionState: NotificationPermissionState = .unknown
+    @State private var showUserGuide = false
     let currentFileName: String
     let onChooseFile: () -> Void
     let onUseLocalFile: () -> Void
@@ -926,9 +932,104 @@ struct SettingsSheet: View {
                     Toggle("Auto Archive Completed", isOn: $autoArchiveOnComplete)
                     Button("Archive Now", action: onArchiveNow)
                 }
+                Section("Notifications") {
+                    LabeledContent("Status", value: notificationPermissionState.description)
+
+                    if notificationPermissionState == .notDetermined {
+                        Button("Enable Alerts and Badges") {
+                            requestNotificationPermissions()
+                        }
+                    } else {
+                        Button("Open Notification Settings") {
+                            openNotificationSettings()
+                        }
+                    }
+                }
+                Section("Help") {
+                    Button("User Guide") {
+                        showUserGuide = true
+                    }
+                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                refreshNotificationPermissionState()
+            }
+            .sheet(isPresented: $showUserGuide) {
+                TodoTxtGuideSheet()
+            }
+        }
+    }
+
+    private func refreshNotificationPermissionState() {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let state: NotificationPermissionState
+            switch settings.authorizationStatus {
+            case .notDetermined:
+                state = .notDetermined
+            case .denied:
+                state = .denied
+            case .authorized:
+                state = .authorized
+            case .provisional:
+                state = .provisional
+            case .ephemeral:
+                state = .ephemeral
+            @unknown default:
+                state = .unknown
+            }
+
+            DispatchQueue.main.async {
+                notificationPermissionState = state
+            }
+        }
+    }
+
+    private func requestNotificationPermissions() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge]) { _, _ in
+            refreshNotificationPermissionState()
+        }
+    }
+
+    private func openNotificationSettings() {
+#if os(iOS)
+        guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else { return }
+        openURL(url)
+#endif
+    }
+}
+
+struct TodoTxtGuideSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Basics") {
+                    Text("One line equals one task.")
+                    Text("Write plain task text if you do not need extra metadata.")
+                }
+                Section("Common Format") {
+                    Text("Priority goes first: `(A) Call Mom`")
+                    Text("A creation date can come next: `(A) 2026-03-11 Call Mom`")
+                    Text("Projects use `+Project` and contexts use `@context`.")
+                    Text("Completed tasks start with `x` and a completion date.")
+                    Text("Extra metadata can use `key:value`, like `due:2026-03-20`.")
+                }
+                Section("More Info") {
+                    Link("todo.txt on GitHub", destination: URL(string: "https://github.com/todotxt/todo.txt")!)
+                }
+            }
+            .navigationTitle("User Guide")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
         }
     }
 }
@@ -960,6 +1061,71 @@ struct FirstLaunchSheet: View {
             .navigationTitle("Welcome")
             .navigationBarTitleDisplayMode(.inline)
         }
+    }
+}
+
+enum TaskEditFormatter {
+    static func editableTaskText(for task: TodoTask) -> String {
+        var bodyTokens: [String] = []
+        if !task.baseDescription.isEmpty {
+            bodyTokens.append(task.baseDescription)
+        }
+        bodyTokens.append(contentsOf: task.projects.map { "+\($0)" })
+        bodyTokens.append(contentsOf: task.contexts.map { "@\($0)" })
+
+        let visibleExtras = task.extras
+            .filter { $0.key != "due" && $0.key != "t" }
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key):\($0.value)" }
+        bodyTokens.append(contentsOf: visibleExtras)
+        return bodyTokens.joined(separator: " ")
+    }
+
+    static func composedRawLine(
+        task: TodoTask,
+        taskText: String,
+        priorityRaw: String,
+        dueDateText: String,
+        thresholdDateText: String
+    ) -> String {
+        let editableBody = taskText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let (desc, projects, contexts, parsedExtras) = TodoParser.parseRest(editableBody)
+        var parts: [String] = []
+
+        if task.completed {
+            parts.append("x")
+            parts.append(TodoParser.dateFormatter.string(from: task.completionDate ?? Date()))
+            if let creationDate = task.creationDate {
+                parts.append(TodoParser.dateFormatter.string(from: creationDate))
+            }
+        } else {
+            if priorityRaw.count == 1 {
+                parts.append("(\(priorityRaw))")
+            }
+            if let creationDate = task.creationDate {
+                parts.append(TodoParser.dateFormatter.string(from: creationDate))
+            }
+        }
+
+        var bodyTokens: [String] = []
+        if !desc.isEmpty {
+            bodyTokens.append(desc)
+        }
+        bodyTokens.append(contentsOf: projects.map { "+\($0)" })
+        bodyTokens.append(contentsOf: contexts.map { "@\($0)" })
+
+        var extras = parsedExtras
+        extras.removeValue(forKey: "due")
+        extras.removeValue(forKey: "t")
+
+        let due = dueDateText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let threshold = thresholdDateText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !due.isEmpty { extras["due"] = due }
+        if !threshold.isEmpty { extras["t"] = threshold }
+
+        bodyTokens.append(contentsOf: extras.sorted { $0.key < $1.key }.map { "\($0.key):\($0.value)" })
+        parts.append(bodyTokens.joined(separator: " "))
+        return parts.joined(separator: " ")
     }
 }
 
@@ -1050,7 +1216,7 @@ struct EditTaskSheet: View {
             }
             .onAppear {
                 if taskText.isEmpty {
-                    taskText = task.baseDescription
+                    taskText = TaskEditFormatter.editableTaskText(for: task)
                     priorityRaw = task.priority.map(String.init) ?? ""
                     dueDateText = task.extras["due"] ?? ""
                     thresholdDateText = task.extras["t"] ?? ""
@@ -1098,43 +1264,13 @@ struct EditTaskSheet: View {
     }
 
     private func composedRawLine() -> String {
-        let desc = taskText.trimmingCharacters(in: .whitespacesAndNewlines)
-        var parts: [String] = []
-
-        if task.completed {
-            parts.append("x")
-            parts.append(TodoParser.dateFormatter.string(from: task.completionDate ?? Date()))
-            if let creationDate = task.creationDate {
-                parts.append(TodoParser.dateFormatter.string(from: creationDate))
-            }
-        } else {
-            if priorityRaw.count == 1 {
-                parts.append("(\(priorityRaw))")
-            }
-            if let creationDate = task.creationDate {
-                parts.append(TodoParser.dateFormatter.string(from: creationDate))
-            }
-        }
-
-        var bodyTokens: [String] = []
-        if !desc.isEmpty {
-            bodyTokens.append(desc)
-        }
-        bodyTokens.append(contentsOf: task.projects.map { "+\($0)" })
-        bodyTokens.append(contentsOf: task.contexts.map { "@\($0)" })
-
-        var extras = task.extras
-        extras.removeValue(forKey: "due")
-        extras.removeValue(forKey: "t")
-
-        let due = dueDateText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let threshold = thresholdDateText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !due.isEmpty { extras["due"] = due }
-        if !threshold.isEmpty { extras["t"] = threshold }
-
-        bodyTokens.append(contentsOf: extras.sorted { $0.key < $1.key }.map { "\($0.key):\($0.value)" })
-        parts.append(bodyTokens.joined(separator: " "))
-        return parts.joined(separator: " ")
+        TaskEditFormatter.composedRawLine(
+            task: task,
+            taskText: taskText,
+            priorityRaw: priorityRaw,
+            dueDateText: dueDateText,
+            thresholdDateText: thresholdDateText
+        )
     }
 }
 

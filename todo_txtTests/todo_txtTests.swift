@@ -13,6 +13,7 @@ import Testing
 struct todo_txtTests {
 
     @Test
+    @MainActor
     func deleteVisibleRemovesCorrectFilteredTask() throws {
         let fileURL = try makeTempTodoFile(contents: """
         (A) 2026-03-01 first open
@@ -53,6 +54,34 @@ struct todo_txtTests {
         let content = try String(contentsOf: fileURL, encoding: .utf8)
         #expect(content.contains("x 2026-03-02"))
         #expect(content.contains("(B) 2026-03-03 new task"))
+    }
+
+    @Test
+    @MainActor
+    func archiveCompletedRestoresTasksWhenSaveFails() throws {
+        let fileURL = try makeTempTodoFile(contents: """
+        x 2026-03-02 2026-03-01 finished task +Archive
+        (A) 2026-03-03 keep open
+        """)
+        defer { cleanupTempFile(at: fileURL) }
+
+        let vm = TodoListViewModel()
+        vm.setExternalURL(fileURL)
+        #expect(vm.tasks.count == 2)
+
+        try FileManager.default.removeItem(at: fileURL)
+        try FileManager.default.createDirectory(at: fileURL, withIntermediateDirectories: false)
+
+        let archivedCount = vm.archiveCompleted()
+
+        #expect(archivedCount == 0)
+        #expect(vm.lastError != nil)
+        #expect(vm.tasks.count == 2)
+        #expect(vm.tasks.contains(where: { $0.baseDescription == "finished task" && $0.completed }))
+
+        let doneURL = fileURL.deletingLastPathComponent().appendingPathComponent("done.txt")
+        let doneContent = try String(contentsOf: doneURL, encoding: .utf8)
+        #expect(doneContent.contains("finished task +Archive"))
     }
 
     // MARK: - Parser tests
@@ -210,6 +239,47 @@ struct todo_txtTests {
         let task = try TodoParser.parse(line: line)
         let serialized = TodoParser.serialize(task)
         #expect(serialized == line)
+    }
+
+    @Test
+    func editableTaskTextIncludesProjectsContextsAndNonDateExtras() throws {
+        let task = try TodoParser.parse(
+            line: "(A) 2026-03-01 Call Mom +Family @phone due:2026-04-01 t:2026-03-20 note:important"
+        )
+
+        let editableText = TaskEditFormatter.editableTaskText(for: task)
+
+        #expect(editableText.contains("Call Mom"))
+        #expect(editableText.contains("+Family"))
+        #expect(editableText.contains("@phone"))
+        #expect(editableText.contains("note:important"))
+        #expect(!editableText.contains("due:2026-04-01"))
+        #expect(!editableText.contains("t:2026-03-20"))
+    }
+
+    @Test
+    func composedRawLineUsesEditedProjectsContextsAndMergedExtras() throws {
+        let originalTask = try TodoParser.parse(
+            line: "(A) 2026-03-01 Call Mom +Family @phone due:2026-04-01 t:2026-03-20 note:old"
+        )
+
+        let rawLine = TaskEditFormatter.composedRawLine(
+            task: originalTask,
+            taskText: "Email Dad +Admin @email note:new",
+            priorityRaw: "B",
+            dueDateText: "2026-04-02",
+            thresholdDateText: ""
+        )
+        let editedTask = try TodoParser.parse(line: rawLine)
+
+        #expect(editedTask.priority == "B")
+        #expect(editedTask.creationDate == originalTask.creationDate)
+        #expect(editedTask.baseDescription == "Email Dad")
+        #expect(editedTask.projects == ["Admin"])
+        #expect(editedTask.contexts == ["email"])
+        #expect(editedTask.extras["note"] == "new")
+        #expect(editedTask.extras["due"] == "2026-04-02")
+        #expect(editedTask.extras["t"] == nil)
     }
 
     // MARK: - Toggle tests
