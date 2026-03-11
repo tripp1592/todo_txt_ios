@@ -1018,7 +1018,7 @@ struct TodoTxtGuideSheet: View {
                     Text("Extra metadata can use `key:value`, like `due:2026-03-20`.")
                 }
                 Section("More Info") {
-                    Link("todo.txt on GitHub", destination: URL(string: "https://github.com/todotxt/todo.txt")!)
+                    Link("todo.txt on GitHub", destination: URL(string: "https://github.com/tripp1592/todo_txt_ios")!)
                 }
             }
             .navigationTitle("User Guide")
