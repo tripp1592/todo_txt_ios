@@ -48,7 +48,7 @@ This project follows the core `todo.txt` conventions:
 - Contexts use `@...`
 - Additional metadata uses `key:value`
 
-Reference: [`todo_txt/docs/todo_txt_format.md`](todo_txt/docs/todo_txt_format.md)
+Reference: [`docs/todo_txt_format.md`](docs/todo_txt_format.md)
 
 
 ## Running locally
