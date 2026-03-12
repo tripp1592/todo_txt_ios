@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UserNotifications
 
 @MainActor
 final class TodoListViewModel: ObservableObject {
@@ -35,6 +36,7 @@ final class TodoListViewModel: ObservableObject {
         do {
             tasks = try store.load()
             lastError = nil
+            updateBadgeCount()
         } catch {
             lastError = "Failed to load: \(error.localizedDescription)"
         }
@@ -62,6 +64,7 @@ final class TodoListViewModel: ObservableObject {
             return false
         }
 
+        updateBadgeCount()
         return true
     }
 
@@ -195,6 +198,7 @@ final class TodoListViewModel: ObservableObject {
             try store.archive(completedTasks, removing: remainingTasks)
             tasks = remainingTasks
             lastError = nil
+            updateBadgeCount()
             return completedTasks.count
         } catch {
             lastError = "Failed to archive: \(error.localizedDescription)"
@@ -243,6 +247,25 @@ final class TodoListViewModel: ObservableObject {
                 TodoParser.restString($0)
                     .localizedCaseInsensitiveCompare(TodoParser.restString($1)) == .orderedAscending
             }
+        }
+    }
+
+    func updateBadgeCount() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+
+        let todayStart = calendar.startOfDay(for: Date())
+
+        let count = tasks.filter { task in
+            guard !task.completed,
+                  let dueString = task.extras["due"],
+                  let dueDate = TodoParser.dateFormatter.date(from: dueString)
+            else { return false }
+            return dueDate <= todayStart
+        }.count
+
+        Task {
+            try? await UNUserNotificationCenter.current().setBadgeCount(count)
         }
     }
 }

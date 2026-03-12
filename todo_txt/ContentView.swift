@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var didRunInitialSetup = false
     @State private var alertText: String?
     @State private var editingTask: TodoTask?
+    @Environment(\.scenePhase) private var scenePhase
 
     @MainActor
     init() {
@@ -195,6 +196,11 @@ struct ContentView: View {
         }
         .onAppear {
             runInitialSetupIfNeeded()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                vm.updateBadgeCount()
+            }
         }
         .onChange(of: showOnboarding) { _, isShowing in
             guard !isShowing, openImporterAfterOnboarding else { return }

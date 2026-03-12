@@ -200,17 +200,39 @@ struct TodoTxtGuideSheet: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Section("Extra Metadata") {
-                    Text("Use key:value pairs anywhere in the task for additional data like due dates or thresholds.")
+                Section {
+                    Text("Use key:value pairs anywhere in the task for additional data. The app recognizes these two tags:")
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("due:")
+                                .font(.body.monospaced().bold())
+                            Text("Due date. When the task needs to be finished. Shows as a date picker when editing.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        Divider()
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("t:")
+                                .font(.body.monospaced().bold())
+                            Text("Threshold (start) date. When you can start working on the task. Shows as a date picker when editing.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+
                     Text("(A) Submit report due:2026-03-20")
                         .font(.body.monospaced())
                         .foregroundStyle(.secondary)
                     Text("Start taxes t:2026-04-01")
                         .font(.body.monospaced())
                         .foregroundStyle(.secondary)
-                    Text("Common keys: due: (due date), t: (threshold/start date). You can invent your own keys too.")
+                    Text("You can also add your own custom tags like note:reminder or link:url. The app will preserve them, but they won't get special handling.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                } header: {
+                    Text("Meta Tags")
                 }
 
                 Section("Using This App") {
