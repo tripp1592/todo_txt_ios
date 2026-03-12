@@ -30,16 +30,6 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Picker("Filter", selection: $vm.filter) {
-                    Text("Open").tag(TodoListViewModel.Filter.open)
-                    Text("Done").tag(TodoListViewModel.Filter.done)
-                    Text("All").tag(TodoListViewModel.Filter.all)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.top, 8)
-                .padding(.bottom, 6)
-
                 HStack {
                     Text("Sort")
                         .font(.caption)
@@ -53,17 +43,15 @@ struct ContentView: View {
                     Spacer()
                 }
                 .padding(.horizontal)
+                .padding(.top, 8)
                 .padding(.bottom, 8)
 
                 List {
                     ForEach(vm.visibleTasks) { task in
                         HStack(spacing: 10) {
-                            Button(action: { handleToggle(task) }) {
-                                Image(systemName: task.completed ? "checkmark.square.fill" : "square")
-                                    .frame(width: 28, alignment: .leading)
-                            }
-                            .buttonStyle(.plain)
-                            .tint(task.completed ? .green : .secondary)
+                            Image(systemName: task.completed ? "checkmark.square.fill" : "square")
+                                .frame(width: 28, alignment: .leading)
+                                .foregroundStyle(task.completed ? .green : .secondary)
 
                             Text(canonicalDisplayLine(for: task))
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -87,6 +75,12 @@ struct ContentView: View {
                             .tint(.blue)
                         }
                         .contextMenu {
+                            Button {
+                                handleToggle(task)
+                            } label: {
+                                Label(task.completed ? "Uncomplete" : "Complete",
+                                      systemImage: task.completed ? "arrow.uturn.backward" : "checkmark")
+                            }
                             Button {
                                 editingTask = task
                             } label: {

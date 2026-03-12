@@ -130,21 +130,108 @@ struct TodoTxtGuideSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Basics") {
-                    Text("One line equals one task.")
-                    Text("Write plain task text if you do not need extra metadata.")
+                Section {
+                    Text("One line in your todo.txt file equals one task. That's it. Just type what you need to do.")
+                    Text("Everything below is optional. A task can be as simple as:")
+                    Text("Buy milk")
+                        .font(.body.monospaced())
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Basics")
+                } footer: {
+                    Text("All formatting — priority, dates, projects, contexts — is completely optional. Use only what helps you.")
                 }
 
-                Section("Common Format") {
-                    Text("Priority goes first: `(A) Call Mom`")
-                    Text("A creation date can come next: `(A) 2026-03-11 Call Mom`")
-                    Text("Projects use `+Project` and contexts use `@context`.")
-                    Text("Completed tasks start with `x` and a completion date.")
-                    Text("Extra metadata can use `key:value`, like `due:2026-03-20`.")
+                Section("Priority") {
+                    Text("Add a letter A\u{2013}Z in parentheses at the very start to set importance. (A) is highest.")
+                    Text("(A) Call Mom")
+                        .font(.body.monospaced())
+                        .foregroundStyle(.secondary)
+                    Text("(B) Schedule dentist appointment")
+                        .font(.body.monospaced())
+                        .foregroundStyle(.secondary)
+                    Text("Pick up groceries")
+                        .font(.body.monospaced())
+                        .foregroundStyle(.secondary)
+                    Text("Priority is optional. Tasks without one are treated as lowest priority when sorting.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
-                Section("More Info") {
-                    Link("todo.txt on GitHub", destination: URL(string: "https://github.com/tripp1592/todo_txt_ios")!)
+                Section("Creation Date") {
+                    Text("A date in YYYY-MM-DD format can appear right after the priority (or first if there's no priority).")
+                    Text("(A) 2026-03-11 Call Mom")
+                        .font(.body.monospaced())
+                        .foregroundStyle(.secondary)
+                    Text("2026-03-11 Buy milk")
+                        .font(.body.monospaced())
+                        .foregroundStyle(.secondary)
+                    Text("Creation dates are optional. They help you see how long a task has been on your list.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Projects & Contexts") {
+                    Text("Tag tasks with +Project to group by project, and @context for where or how you'll do it.")
+                    Text("Call Mom +Family @phone")
+                        .font(.body.monospaced())
+                        .foregroundStyle(.secondary)
+                    Text("Schedule pickup +GarageSale @phone")
+                        .font(.body.monospaced())
+                        .foregroundStyle(.secondary)
+                    Text("Research flights +Vacation @computer")
+                        .font(.body.monospaced())
+                        .foregroundStyle(.secondary)
+                    Text("Projects and contexts are optional. A task can have zero, one, or many of each. They can appear anywhere in the task text.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Completing Tasks") {
+                    Text("A completed task starts with a lowercase x followed by the completion date.")
+                    Text("x 2026-03-11 Call Mom")
+                        .font(.body.monospaced())
+                        .foregroundStyle(.secondary)
+                    Text("x 2026-03-11 2026-03-10 Buy milk")
+                        .font(.body.monospaced())
+                        .foregroundStyle(.secondary)
+                    Text("The second date above is the original creation date. This lets you see how long a task took.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Extra Metadata") {
+                    Text("Use key:value pairs anywhere in the task for additional data like due dates or thresholds.")
+                    Text("(A) Submit report due:2026-03-20")
+                        .font(.body.monospaced())
+                        .foregroundStyle(.secondary)
+                    Text("Start taxes t:2026-04-01")
+                        .font(.body.monospaced())
+                        .foregroundStyle(.secondary)
+                    Text("Common keys: due: (due date), t: (threshold/start date). You can invent your own keys too.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Using This App") {
+                    Label("Type a task in the text field at the bottom and tap + to add it.", systemImage: "plus")
+                    Label("Long press a task to mark it complete, edit, or delete.", systemImage: "hand.tap")
+                    Label("Swipe left on a task to edit. Swipe right to delete.", systemImage: "hand.draw")
+                    Label("Use the sort menu to order tasks by priority, date, or text.", systemImage: "arrow.up.arrow.down")
+                    Label("Archive moves completed tasks from todo.txt to done.txt.", systemImage: "archivebox")
+                    Label("Choose any .txt file from Files, or sync with iCloud Drive.", systemImage: "folder")
+                }
+
+                Section("Full Example") {
+                    Group {
+                        Text("(A) 2026-03-11 Call Mom +Family @phone")
+                        Text("(B) Schedule Goodwill pickup +GarageSale @phone")
+                        Text("Post signs around the neighborhood +GarageSale")
+                        Text("Buy milk @errands due:2026-03-12")
+                        Text("x 2026-03-11 2026-03-10 File taxes +Finance @computer")
+                    }
+                    .font(.body.monospaced())
+                    .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("User Guide")

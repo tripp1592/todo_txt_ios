@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 final class TodoListViewModel: ObservableObject {
     @Published private(set) var tasks: [TodoTask] = []
-    @Published var filter: Filter = .open
+    @Published var filter: Filter = .all
     @Published var sort: Sort = .priority
     @Published var lastError: String?
 
