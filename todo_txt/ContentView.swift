@@ -5,10 +5,8 @@ import UserNotifications
 struct ContentView: View {
     @StateObject private var vm: TodoListViewModel
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
-    @AppStorage("defaultPriority") private var defaultPriorityRaw = ""
-    @AppStorage("autoArchiveOnComplete") private var autoArchiveOnComplete = false
     @AppStorage("iCloudSyncEnabled") private var iCloudSyncEnabled = false
-    @State private var newLine = ""
+    
     @State private var showImporter = false
     @State private var showSettings = false
     @State private var showOnboarding = false
@@ -16,15 +14,11 @@ struct ContentView: View {
     @State private var didRunInitialSetup = false
     @State private var alertText: String?
     @State private var editingTask: TodoTask?
+    
     @Environment(\.scenePhase) private var scenePhase
 
     @MainActor
-    init() {
-        _vm = StateObject(wrappedValue: TodoListViewModel())
-    }
-
-    @MainActor
-    init(viewModel: TodoListViewModel) {
+    init(viewModel: TodoListViewModel = TodoListViewModel()) {
         _vm = StateObject(wrappedValue: viewModel)
     }
 
@@ -49,72 +43,15 @@ struct ContentView: View {
 
                 List {
                     ForEach(vm.visibleTasks) { task in
-                        HStack(spacing: 10) {
-                            Image(systemName: task.completed ? "checkmark.square.fill" : "square")
-                                .frame(width: 28, alignment: .leading)
-                                .foregroundStyle(task.completed ? .green : .secondary)
-
-                            Text(canonicalDisplayLine(for: task))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .foregroundStyle(task.completed ? .secondary : .primary)
-                        }
-                        .font(.body.monospaced())
-                        .padding(.vertical, 4)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
-                                vm.deleteTask(task)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
-                        .swipeActions(edge: .leading) {
-                            Button {
-                                editingTask = task
-                            } label: {
-                                Label("Edit", systemImage: "pencil")
-                            }
-                            .tint(.blue)
-                        }
-                        .contextMenu {
-                            Button {
-                                handleToggle(task)
-                            } label: {
-                                Label(task.completed ? "Uncomplete" : "Complete",
-                                      systemImage: task.completed ? "arrow.uturn.backward" : "checkmark")
-                            }
-                            Button {
-                                editingTask = task
-                            } label: {
-                                Label("Edit", systemImage: "pencil")
-                            }
-                            Button(role: .destructive) {
-                                vm.deleteTask(task)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
+                        TaskRowView(task: task, vm: vm) {
+                            editingTask = task
                         }
                     }
                     .onDelete(perform: vm.deleteVisible)
                 }
                 .listStyle(.plain)
 
-                HStack(spacing: 10) {
-                    TextField("(A) 2025-08-11 Your task +Project @context due:2025-09-01", text: $newLine)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-                        .font(.body.monospaced())
-                        .onSubmit(commitNew)
-                    Button(action: { commitNew() }) {
-                        Image(systemName: "plus")
-                            .imageScale(.large)
-                            .font(.title3.weight(.bold))
-                    }
-                    .disabled(newLine.trimmingCharacters(in: .whitespaces).isEmpty)
-                    .accessibilityLabel("Add task")
-                    .keyboardShortcut(.defaultAction)
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 10)
+                AddTaskView(vm: vm, alertText: $alertText)
 
                 Text("File: \(vmStoreFileName) • \(vm.visibleTasks.count) / \(vm.tasks.count)")
                     .font(.footnote)
@@ -254,10 +191,6 @@ struct ContentView: View {
         TodoFileStore.shared.fileURL().lastPathComponent
     }
 
-    private func canonicalDisplayLine(for task: TodoTask) -> String {
-        TodoParser.serialize(task)
-    }
-
     private func runInitialSetupIfNeeded() {
         guard !didRunInitialSetup else { return }
         didRunInitialSetup = true
@@ -270,13 +203,6 @@ struct ContentView: View {
 
         if !hasSeenOnboarding {
             showOnboarding = true
-        }
-    }
-
-    private func handleToggle(_ task: TodoTask) {
-        let justCompleted = vm.toggle(task)
-        if autoArchiveOnComplete, justCompleted {
-            _ = vm.archiveCompleted()
         }
     }
 
@@ -302,6 +228,94 @@ struct ContentView: View {
             iCloudSyncEnabled = false
             vm.clearExternalURL()
         }
+    }
+}
+
+// MARK: - Extracted Subviews
+
+struct TaskRowView: View {
+    let task: TodoTask
+    @ObservedObject var vm: TodoListViewModel
+    let onEdit: () -> Void
+    
+    @AppStorage("autoArchiveOnComplete") private var autoArchiveOnComplete = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: task.completed ? "checkmark.square.fill" : "square")
+                .frame(width: 28, alignment: .leading)
+                .foregroundStyle(task.completed ? .green : .secondary)
+
+            Text(TodoParser.serialize(task))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundStyle(task.completed ? .secondary : .primary)
+        }
+        .font(.body.monospaced())
+        .padding(.vertical, 4)
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) {
+                vm.deleteTask(task)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+        .swipeActions(edge: .leading) {
+            Button(action: onEdit) {
+                Label("Edit", systemImage: "pencil")
+            }
+            .tint(.blue)
+        }
+        .contextMenu {
+            Button {
+                handleToggle()
+            } label: {
+                Label(task.completed ? "Uncomplete" : "Complete",
+                      systemImage: task.completed ? "arrow.uturn.backward" : "checkmark")
+            }
+            Button(action: onEdit) {
+                Label("Edit", systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                vm.deleteTask(task)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    private func handleToggle() {
+        let justCompleted = vm.toggle(task)
+        if autoArchiveOnComplete, justCompleted {
+            _ = vm.archiveCompleted()
+        }
+    }
+}
+
+struct AddTaskView: View {
+    @ObservedObject var vm: TodoListViewModel
+    @Binding var alertText: String?
+    
+    @AppStorage("defaultPriority") private var defaultPriorityRaw = ""
+    @State private var newLine = ""
+
+    var body: some View {
+        HStack(spacing: 10) {
+            TextField("(A) 2025-08-11 Your task +Project @context due:2025-09-01", text: $newLine)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+                .font(.body.monospaced())
+                .onSubmit(commitNew)
+            Button(action: { commitNew() }) {
+                Image(systemName: "plus")
+                    .imageScale(.large)
+                    .font(.title3.weight(.bold))
+            }
+            .disabled(newLine.trimmingCharacters(in: .whitespaces).isEmpty)
+            .accessibilityLabel("Add task")
+            .keyboardShortcut(.defaultAction)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
     }
 
     private func commitNew() {
