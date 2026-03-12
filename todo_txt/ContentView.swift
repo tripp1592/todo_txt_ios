@@ -109,6 +109,7 @@ struct ContentView: View {
                             .imageScale(.large)
                             .font(.title3.weight(.bold))
                     }
+                    .disabled(newLine.trimmingCharacters(in: .whitespaces).isEmpty)
                     .accessibilityLabel("Add task")
                     .keyboardShortcut(.defaultAction)
                 }
