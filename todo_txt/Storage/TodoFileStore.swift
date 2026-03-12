@@ -108,33 +108,41 @@ final class TodoFileStore: TodoStore {
             remainingByID.removeValue(forKey: task.id)
         }
 
-        loadedEntries = newLoadedEntries
-
         let text = lines.joined(separator: "\n").appending("\n")
         try withSecurityScope(url: url) {
             try text.write(to: url, atomically: true, encoding: .utf8)
         }
+        loadedEntries = newLoadedEntries
     }
 
-    func appendToArchive(_ tasks: [TodoTask]) throws {
-        guard !tasks.isEmpty else { return }
+    func archive(_ completedTasks: [TodoTask], removing remainingTasks: [TodoTask]) throws {
+        guard !completedTasks.isEmpty else { return }
 
-        let archiveURL = effectiveURL()
+        let todoURL = effectiveURL()
+        let archiveURL = todoURL
             .deletingLastPathComponent()
             .appendingPathComponent("done.txt")
-        let chunk = tasks.map(TodoParser.serialize).joined(separator: "\n").appending("\n")
+        let archiveChunk = completedTasks.map(TodoParser.serialize).joined(separator: "\n").appending("\n")
+        let previousArchiveText: String? = try withSecurityScope(url: archiveURL) {
+            guard FileManager.default.fileExists(atPath: archiveURL.path) else { return nil }
+            return try String(contentsOf: archiveURL, encoding: .utf8)
+        }
 
-        try withSecurityScope(url: archiveURL) {
-            if FileManager.default.fileExists(atPath: archiveURL.path) {
-                let handle = try FileHandle(forWritingTo: archiveURL)
-                defer { try? handle.close() }
-                try handle.seekToEnd()
-                if let data = chunk.data(using: .utf8) {
-                    try handle.write(contentsOf: data)
-                }
-            } else {
-                try chunk.write(to: archiveURL, atomically: true, encoding: .utf8)
+        do {
+            try withSecurityScope(url: archiveURL) {
+                let updatedArchiveText = (previousArchiveText ?? "") + archiveChunk
+                try updatedArchiveText.write(to: archiveURL, atomically: true, encoding: .utf8)
             }
+            try save(remainingTasks)
+        } catch {
+            try? withSecurityScope(url: archiveURL) {
+                if let previousArchiveText {
+                    try previousArchiveText.write(to: archiveURL, atomically: true, encoding: .utf8)
+                } else if FileManager.default.fileExists(atPath: archiveURL.path) {
+                    try FileManager.default.removeItem(at: archiveURL)
+                }
+            }
+            throw error
         }
     }
 

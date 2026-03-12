@@ -80,8 +80,52 @@ struct todo_txtTests {
         #expect(vm.tasks.contains(where: { $0.baseDescription == "finished task" && $0.completed }))
 
         let doneURL = fileURL.deletingLastPathComponent().appendingPathComponent("done.txt")
-        let doneContent = try String(contentsOf: doneURL, encoding: .utf8)
-        #expect(doneContent.contains("finished task +Archive"))
+        #expect(!FileManager.default.fileExists(atPath: doneURL.path))
+    }
+
+    @Test
+    @MainActor
+    func addRollsBackTasksWhenSaveFails() throws {
+        let fileURL = try makeTempTodoFile(contents: """
+        (A) 2026-03-01 keep task
+        """)
+        defer { cleanupTempFile(at: fileURL) }
+
+        let vm = TodoListViewModel()
+        vm.setExternalURL(fileURL)
+        #expect(vm.tasks.count == 1)
+
+        try FileManager.default.removeItem(at: fileURL)
+        try FileManager.default.createDirectory(at: fileURL, withIntermediateDirectories: false)
+
+        let parseError = vm.add("(B) 2026-03-02 should not persist")
+
+        #expect(parseError == nil)
+        #expect(vm.lastError != nil)
+        #expect(vm.tasks.count == 1)
+        #expect(vm.tasks.contains(where: { $0.baseDescription == "keep task" }))
+    }
+
+    @Test
+    @MainActor
+    func loadFailurePreservesExistingTasksAndSetsError() throws {
+        let fileURL = try makeTempTodoFile(contents: """
+        (A) 2026-03-01 keep task
+        """)
+        defer { cleanupTempFile(at: fileURL) }
+
+        let vm = TodoListViewModel()
+        vm.setExternalURL(fileURL)
+        #expect(vm.tasks.count == 1)
+
+        try FileManager.default.removeItem(at: fileURL)
+        try FileManager.default.createDirectory(at: fileURL, withIntermediateDirectories: false)
+
+        vm.load()
+
+        #expect(vm.lastError != nil)
+        #expect(vm.tasks.count == 1)
+        #expect(vm.tasks.first?.baseDescription == "keep task")
     }
 
     // MARK: - Parser tests

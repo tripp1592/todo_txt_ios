@@ -34,8 +34,9 @@ final class TodoListViewModel: ObservableObject {
     func load() {
         do {
             tasks = try store.load()
+            lastError = nil
         } catch {
-            tasks = []
+            lastError = "Failed to load: \(error.localizedDescription)"
         }
     }
 
@@ -43,11 +44,25 @@ final class TodoListViewModel: ObservableObject {
     private func save() -> Bool {
         do {
             try store.save(tasks)
+            lastError = nil
             return true
         } catch {
             lastError = "Failed to save: \(error.localizedDescription)"
             return false
         }
+    }
+
+    @discardableResult
+    private func commit(_ newTasks: [TodoTask]) -> Bool {
+        let previousTasks = tasks
+        tasks = newTasks
+
+        guard save() else {
+            tasks = previousTasks
+            return false
+        }
+
+        return true
     }
 
     func add(_ text: String) -> String? {
@@ -57,8 +72,9 @@ final class TodoListViewModel: ObservableObject {
 
         do {
             let task = try TodoParser.parse(line: text)
-            tasks.append(task)
-            save()
+            var newTasks = tasks
+            newTasks.append(task)
+            _ = commit(newTasks)
             return nil
         } catch {
             return error.localizedDescription
@@ -66,8 +82,9 @@ final class TodoListViewModel: ObservableObject {
     }
 
     func delete(at offsets: IndexSet) {
-        tasks.remove(atOffsets: offsets)
-        save()
+        var newTasks = tasks
+        newTasks.remove(atOffsets: offsets)
+        _ = commit(newTasks)
     }
 
     func deleteVisible(at offsets: IndexSet) {
@@ -77,14 +94,15 @@ final class TodoListViewModel: ObservableObject {
             return visible[index].id
         })
 
-        tasks.removeAll { idsToDelete.contains($0.id) }
-        save()
+        let newTasks = tasks.filter { !idsToDelete.contains($0.id) }
+        _ = commit(newTasks)
     }
 
     func deleteTask(_ task: TodoTask) {
         if let index = tasks.firstIndex(of: task) {
-            tasks.remove(at: index)
-            save()
+            var newTasks = tasks
+            newTasks.remove(at: index)
+            _ = commit(newTasks)
         }
     }
 
@@ -105,8 +123,9 @@ final class TodoListViewModel: ObservableObject {
             justCompleted = true
         }
 
-        tasks[index] = updatedTask
-        save()
+        var newTasks = tasks
+        newTasks[index] = updatedTask
+        guard commit(newTasks) else { return false }
         return justCompleted
     }
 
@@ -142,15 +161,17 @@ final class TodoListViewModel: ObservableObject {
         let seededTasks = samples.compactMap { try? TodoParser.parse(line: $0) }
         guard !seededTasks.isEmpty else { return }
 
-        tasks.append(contentsOf: seededTasks)
-        save()
+        var newTasks = tasks
+        newTasks.append(contentsOf: seededTasks)
+        _ = commit(newTasks)
     }
 
     func update(_ task: TodoTask, with rawLine: String) -> Bool {
         guard let index = tasks.firstIndex(of: task) else { return false }
         guard let parsed = try? TodoParser.parse(line: rawLine) else { return false }
 
-        tasks[index] = TodoTask(
+        var newTasks = tasks
+        newTasks[index] = TodoTask(
             id: task.id,
             completed: parsed.completed,
             completionDate: parsed.completionDate,
@@ -161,25 +182,19 @@ final class TodoListViewModel: ObservableObject {
             contexts: parsed.contexts,
             extras: parsed.extras
         )
-        save()
-        return true
+        return commit(newTasks)
     }
 
     @discardableResult
     func archiveCompleted() -> Int {
         let completedTasks = tasks.filter(\.completed)
         guard !completedTasks.isEmpty else { return 0 }
+        let remainingTasks = tasks.filter { !$0.completed }
 
         do {
-            try store.appendToArchive(completedTasks)
-            let remainingTasks = tasks.filter { !$0.completed }
+            try store.archive(completedTasks, removing: remainingTasks)
             tasks = remainingTasks
-
-            guard save() else {
-                tasks.append(contentsOf: completedTasks)
-                return 0
-            }
-
+            lastError = nil
             return completedTasks.count
         } catch {
             lastError = "Failed to archive: \(error.localizedDescription)"

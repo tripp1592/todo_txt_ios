@@ -47,8 +47,8 @@ struct SettingsSheet: View {
                         .onChange(of: iCloudSyncEnabled) { _, enabled in
                             onICloudSyncChanged(enabled)
                         }
+                    Button("Create New .txt File", action: onUseLocalFile)
                     Button("Choose .txt File", action: onChooseFile)
-                    Button("Use App Documents/todo.txt", action: onUseLocalFile)
                 }
 
                 Section("Tasks") {

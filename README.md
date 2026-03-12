@@ -62,14 +62,6 @@ On first launch, you can either:
 - use a local app-managed `todo.txt` file
 - import or choose an existing `.txt` file
 
-## Testing
-
-The project includes both unit and UI tests:
-
-- `todo_txtTests`
-- `todo_txtUITests`
-
-The unit tests cover parser behavior, round-trip serialization, filtered deletion behavior, save behavior for unparseable lines, and archive failure recovery.
 
 ## Repository
 
