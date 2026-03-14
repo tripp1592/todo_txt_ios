@@ -36,11 +36,12 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                     Picker("Sort", selection: $vm.sort) {
                         Text("Priority").tag(TodoListViewModel.Sort.priority)
-                        Text("Due Date").tag(TodoListViewModel.Sort.dueDate)
+                        Text("Due").tag(TodoListViewModel.Sort.dueDate)
                         Text("Newest").tag(TodoListViewModel.Sort.newestDate)
                         Text("Text").tag(TodoListViewModel.Sort.text)
                     }
                     .pickerStyle(.menu)
+                    .fixedSize()
                     Spacer()
                     Text("Group")
                         .font(.caption)
@@ -48,9 +49,10 @@ struct ContentView: View {
                     Picker("Group", selection: $vm.grouping) {
                         Text("None").tag(TodoListViewModel.Grouping.none)
                         Text("Priority").tag(TodoListViewModel.Grouping.priority)
-                        Text("Due Date").tag(TodoListViewModel.Grouping.dueDate)
+                        Text("Due").tag(TodoListViewModel.Grouping.dueDate)
                     }
                     .pickerStyle(.menu)
+                    .fixedSize()
                 }
                 .padding(.horizontal)
                 .padding(.top, 8)
