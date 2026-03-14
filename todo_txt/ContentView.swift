@@ -36,23 +36,45 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                     Picker("Sort", selection: $vm.sort) {
                         Text("Priority").tag(TodoListViewModel.Sort.priority)
+                        Text("Due Date").tag(TodoListViewModel.Sort.dueDate)
                         Text("Newest").tag(TodoListViewModel.Sort.newestDate)
                         Text("Text").tag(TodoListViewModel.Sort.text)
                     }
                     .pickerStyle(.menu)
                     Spacer()
+                    Text("Group")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Picker("Group", selection: $vm.grouping) {
+                        Text("None").tag(TodoListViewModel.Grouping.none)
+                        Text("Priority").tag(TodoListViewModel.Grouping.priority)
+                        Text("Due Date").tag(TodoListViewModel.Grouping.dueDate)
+                    }
+                    .pickerStyle(.menu)
                 }
                 .padding(.horizontal)
                 .padding(.top, 8)
                 .padding(.bottom, 8)
 
                 List {
-                    ForEach(vm.visibleTasks) { task in
-                        TaskRowView(task: task, vm: vm) {
-                            editingTask = task
+                    if vm.grouping == .none {
+                        ForEach(vm.visibleTasks) { task in
+                            TaskRowView(task: task, vm: vm) {
+                                editingTask = task
+                            }
+                        }
+                        .onDelete(perform: vm.deleteVisible)
+                    } else {
+                        ForEach(vm.groupedTasks, id: \.key) { group in
+                            Section(group.key) {
+                                ForEach(group.tasks) { task in
+                                    TaskRowView(task: task, vm: vm) {
+                                        editingTask = task
+                                    }
+                                }
+                            }
                         }
                     }
-                    .onDelete(perform: vm.deleteVisible)
                 }
                 .listStyle(.plain)
 

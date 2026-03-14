@@ -16,11 +16,16 @@ final class TodoListViewModel: ObservableObject {
         didSet { updateVisibleTasks() }
     }
     
+    @Published var grouping: Grouping = .none {
+        didSet { updateVisibleTasks() }
+    }
+    
     @Published var lastError: String?
     
     // Using a @Published property prevents sorting and string allocation
     // on every single SwiftUI view render.
     @Published private(set) var visibleTasks: [TodoTask] = []
+    @Published private(set) var groupedTasks: [(key: String, tasks: [TodoTask])] = []
 
     enum Filter: String, CaseIterable, Identifiable {
         case open
@@ -33,7 +38,16 @@ final class TodoListViewModel: ObservableObject {
     enum Sort: String, CaseIterable, Identifiable {
         case priority
         case newestDate
+        case dueDate
         case text
+
+        var id: String { rawValue }
+    }
+
+    enum Grouping: String, CaseIterable, Identifiable {
+        case none
+        case priority
+        case dueDate
 
         var id: String { rawValue }
     }
@@ -255,10 +269,82 @@ final class TodoListViewModel: ObservableObject {
                 return TodoParser.restString(lhs)
                     .localizedCaseInsensitiveCompare(TodoParser.restString(rhs)) == .orderedAscending
             }
+        case .dueDate:
+            visibleTasks = filteredTasks.sorted { lhs, rhs in
+                let leftDue = lhs.extras["due"].flatMap { TodoParser.dateFormatter.date(from: $0) }
+                let rightDue = rhs.extras["due"].flatMap { TodoParser.dateFormatter.date(from: $0) }
+                switch (leftDue, rightDue) {
+                case let (l?, r?) where l != r:
+                    return l < r
+                case (_?, nil):
+                    return true
+                case (nil, _?):
+                    return false
+                default:
+                    return TodoParser.restString(lhs)
+                        .localizedCaseInsensitiveCompare(TodoParser.restString(rhs)) == .orderedAscending
+                }
+            }
         case .text:
             visibleTasks = filteredTasks.sorted {
                 TodoParser.restString($0)
                     .localizedCaseInsensitiveCompare(TodoParser.restString($1)) == .orderedAscending
+            }
+        }
+
+        updateGroupedTasks()
+    }
+
+    private func updateGroupedTasks() {
+        switch grouping {
+        case .none:
+            groupedTasks = []
+        case .priority:
+            var buckets: [String: [TodoTask]] = [:]
+            for task in visibleTasks {
+                let key: String
+                if task.completed {
+                    key = "Completed"
+                } else if let p = task.priority {
+                    key = "(\(p))"
+                } else {
+                    key = "No Priority"
+                }
+                buckets[key, default: []].append(task)
+            }
+            let order = ["(A)", "(B)", "(C)", "(D)", "(E)", "No Priority", "Completed"]
+            let known = Set(order)
+            var result = order.compactMap { key in
+                buckets[key].map { (key: key, tasks: $0) }
+            }
+            // Append any F-Z priorities that may exist
+            let extras = buckets.keys
+                .filter { !known.contains($0) }
+                .sorted()
+            for key in extras {
+                if let tasks = buckets[key] {
+                    result.insert((key: key, tasks: tasks), at: result.count - (buckets["Completed"] != nil ? 1 : 0))
+                }
+            }
+            groupedTasks = result
+        case .dueDate:
+            var buckets: [String: [TodoTask]] = [:]
+            for task in visibleTasks {
+                let key: String
+                if let due = task.extras["due"], !due.isEmpty {
+                    key = due
+                } else {
+                    key = "No Due Date"
+                }
+                buckets[key, default: []].append(task)
+            }
+            let sortedKeys = buckets.keys.sorted { lhs, rhs in
+                if lhs == "No Due Date" { return false }
+                if rhs == "No Due Date" { return true }
+                return lhs < rhs
+            }
+            groupedTasks = sortedKeys.compactMap { key in
+                buckets[key].map { (key: key, tasks: $0) }
             }
         }
     }
