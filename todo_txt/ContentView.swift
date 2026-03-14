@@ -18,7 +18,12 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @MainActor
-    init(viewModel: TodoListViewModel = TodoListViewModel()) {
+    init() {
+        _vm = StateObject(wrappedValue: TodoListViewModel())
+    }
+
+    @MainActor
+    init(viewModel: TodoListViewModel) {
         _vm = StateObject(wrappedValue: viewModel)
     }
 
@@ -297,20 +302,27 @@ struct AddTaskView: View {
     
     @AppStorage("defaultPriority") private var defaultPriorityRaw = ""
     @State private var newLine = ""
+    @FocusState private var isInputFocused: Bool
 
     var body: some View {
         HStack(spacing: 10) {
             TextField("(A) 2025-08-11 Your task +Project @context due:2025-09-01", text: $newLine)
+                .focused($isInputFocused)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
                 .font(.body.monospaced())
                 .onSubmit(commitNew)
-            Button(action: { commitNew() }) {
+            Button {
+                if newLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    isInputFocused = true
+                } else {
+                    commitNew()
+                }
+            } label: {
                 Image(systemName: "plus")
                     .imageScale(.large)
                     .font(.title3.weight(.bold))
             }
-            .disabled(newLine.trimmingCharacters(in: .whitespaces).isEmpty)
             .accessibilityLabel("Add task")
             .keyboardShortcut(.defaultAction)
         }
@@ -320,7 +332,10 @@ struct AddTaskView: View {
 
     private func commitNew() {
         let line = newLine.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !line.isEmpty else { return }
+        guard !line.isEmpty else {
+            isInputFocused = true
+            return
+        }
 
         let lineToAdd = lineWithDefaultPriorityIfNeeded(line)
         if let errorMessage = vm.add(lineToAdd) {

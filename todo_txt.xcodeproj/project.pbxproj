@@ -57,6 +57,11 @@
 			path = docs;
 			sourceTree = "<group>";
 		};
+		66F16C6E2F64D63D0043C182 /* Assets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Assets;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -87,13 +92,14 @@
 		664A02082E4AD9D900E613BF = {
 			isa = PBXGroup;
 			children = (
-				669901C12F6113E800B4726C /* .gitignore */,
+				66F16C6E2F64D63D0043C182 /* Assets */,
 				669901C32F61166D00B4726C /* README.md */,
 				6658891F2F5CF945002A9CE7 /* docs */,
 				664A02132E4AD9D900E613BF /* todo_txt */,
 				664A02232E4AD9DA00E613BF /* todo_txtTests */,
 				664A022D2E4AD9DA00E613BF /* todo_txtUITests */,
 				664A02122E4AD9D900E613BF /* Products */,
+				669901C12F6113E800B4726C /* .gitignore */,
 			);
 			sourceTree = "<group>";
 		};
@@ -125,6 +131,7 @@
 			fileSystemSynchronizedGroups = (
 				664A02132E4AD9D900E613BF /* todo_txt */,
 				6658891F2F5CF945002A9CE7 /* docs */,
+				66F16C6E2F64D63D0043C182 /* Assets */,
 			);
 			name = todo_txt;
 			packageProductDependencies = (

@@ -54,9 +54,11 @@ struct SettingsSheet: View {
                 Section("Tasks") {
                     Picker("Default Priority", selection: $defaultPriorityRaw) {
                         Text("None").tag("")
-                        ForEach(Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ"), id: \.self) { priority in
-                            Text(String(priority)).tag(String(priority))
-                        }
+                        Text("A – Highest").tag("A")
+                        Text("B – High").tag("B")
+                        Text("C – Normal").tag("C")
+                        Text("D – Low").tag("D")
+                        Text("E – Lowest").tag("E")
                     }
                     Toggle("Auto Archive Completed", isOn: $autoArchiveOnComplete)
                     Button("Archive Now", action: onArchiveNow)
@@ -143,17 +145,26 @@ struct TodoTxtGuideSheet: View {
                 }
 
                 Section("Priority") {
-                    Text("Add a letter A\u{2013}Z in parentheses at the very start to set importance. (A) is highest.")
+                    Text("Add a letter in parentheses at the very start to set importance. The app offers five levels:")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("(A) Highest")
+                        Text("(B) High")
+                        Text("(C) Normal — the default/average level")
+                        Text("(D) Low")
+                        Text("(E) Lowest")
+                    }
+                    .font(.body.monospaced())
+                    .foregroundStyle(.secondary)
                     Text("(A) Call Mom")
                         .font(.body.monospaced())
                         .foregroundStyle(.secondary)
-                    Text("(B) Schedule dentist appointment")
+                    Text("(C) Schedule dentist appointment")
                         .font(.body.monospaced())
                         .foregroundStyle(.secondary)
                     Text("Pick up groceries")
                         .font(.body.monospaced())
                         .foregroundStyle(.secondary)
-                    Text("Priority is optional. Tasks without one are treated as lowest priority when sorting.")
+                    Text("Priority is optional. Tasks without one are treated as lowest priority when sorting. Letters F\u{2013}Z are also valid if typed manually.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -406,9 +417,11 @@ struct EditTaskSheet: View {
                 Section("Priority") {
                     Picker("Priority", selection: $priorityRaw) {
                         Text("None").tag("")
-                        ForEach(Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ"), id: \.self) { priority in
-                            Text(String(priority)).tag(String(priority))
-                        }
+                        Text("A – Highest").tag("A")
+                        Text("B – High").tag("B")
+                        Text("C – Normal").tag("C")
+                        Text("D – Low").tag("D")
+                        Text("E – Lowest").tag("E")
                     }
                 }
 

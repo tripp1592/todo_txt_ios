@@ -4,10 +4,23 @@ import UserNotifications
 
 @MainActor
 final class TodoListViewModel: ObservableObject {
-    @Published private(set) var tasks: [TodoTask] = []
-    @Published var filter: Filter = .all
-    @Published var sort: Sort = .priority
+    @Published private(set) var tasks: [TodoTask] = [] {
+        didSet { updateVisibleTasks() }
+    }
+    
+    @Published var filter: Filter = .all {
+        didSet { updateVisibleTasks() }
+    }
+    
+    @Published var sort: Sort = .priority {
+        didSet { updateVisibleTasks() }
+    }
+    
     @Published var lastError: String?
+    
+    // Using a @Published property prevents sorting and string allocation
+    // on every single SwiftUI view render.
+    @Published private(set) var visibleTasks: [TodoTask] = []
 
     enum Filter: String, CaseIterable, Identifiable {
         case open
@@ -206,7 +219,7 @@ final class TodoListViewModel: ObservableObject {
         }
     }
 
-    var visibleTasks: [TodoTask] {
+    private func updateVisibleTasks() {
         let filteredTasks: [TodoTask]
 
         switch filter {
@@ -220,7 +233,7 @@ final class TodoListViewModel: ObservableObject {
 
         switch sort {
         case .priority:
-            return filteredTasks.sorted { lhs, rhs in
+            visibleTasks = filteredTasks.sorted { lhs, rhs in
                 if lhs.completed != rhs.completed {
                     return !lhs.completed
                 }
@@ -233,7 +246,7 @@ final class TodoListViewModel: ObservableObject {
                     .localizedCaseInsensitiveCompare(TodoParser.restString(rhs)) == .orderedAscending
             }
         case .newestDate:
-            return filteredTasks.sorted { lhs, rhs in
+            visibleTasks = filteredTasks.sorted { lhs, rhs in
                 let leftDate = lhs.completionDate ?? lhs.creationDate ?? .distantPast
                 let rightDate = rhs.completionDate ?? rhs.creationDate ?? .distantPast
                 if leftDate != rightDate {
@@ -243,7 +256,7 @@ final class TodoListViewModel: ObservableObject {
                     .localizedCaseInsensitiveCompare(TodoParser.restString(rhs)) == .orderedAscending
             }
         case .text:
-            return filteredTasks.sorted {
+            visibleTasks = filteredTasks.sorted {
                 TodoParser.restString($0)
                     .localizedCaseInsensitiveCompare(TodoParser.restString($1)) == .orderedAscending
             }
