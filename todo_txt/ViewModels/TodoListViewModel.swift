@@ -46,6 +46,8 @@ final class TodoListViewModel: ObservableObject {
         case none
         case priority
         case dueDate
+        case project
+        case context
 
         var id: String { rawValue }
     }
@@ -325,6 +327,44 @@ final class TodoListViewModel: ObservableObject {
                 if lhs == "No Due Date" { return false }
                 if rhs == "No Due Date" { return true }
                 return lhs < rhs
+            }
+            groupedTasks = sortedKeys.compactMap { key in
+                buckets[key].map { (key: key, tasks: $0) }
+            }
+        case .project:
+            var buckets: [String: [TodoTask]] = [:]
+            for task in visibleTasks {
+                if task.projects.isEmpty {
+                    buckets["No Project", default: []].append(task)
+                } else {
+                    for project in task.projects {
+                        buckets[project, default: []].append(task)
+                    }
+                }
+            }
+            let sortedKeys = buckets.keys.sorted { lhs, rhs in
+                if lhs == "No Project" { return false }
+                if rhs == "No Project" { return true }
+                return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+            }
+            groupedTasks = sortedKeys.compactMap { key in
+                buckets[key].map { (key: key, tasks: $0) }
+            }
+        case .context:
+            var buckets: [String: [TodoTask]] = [:]
+            for task in visibleTasks {
+                if task.contexts.isEmpty {
+                    buckets["No Context", default: []].append(task)
+                } else {
+                    for context in task.contexts {
+                        buckets[context, default: []].append(task)
+                    }
+                }
+            }
+            let sortedKeys = buckets.keys.sorted { lhs, rhs in
+                if lhs == "No Context" { return false }
+                if rhs == "No Context" { return true }
+                return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
             }
             groupedTasks = sortedKeys.compactMap { key in
                 buckets[key].map { (key: key, tasks: $0) }

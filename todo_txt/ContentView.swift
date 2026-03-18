@@ -48,6 +48,8 @@ struct ContentView: View {
                         Text("None").tag(TodoListViewModel.Grouping.none)
                         Text("Priority").tag(TodoListViewModel.Grouping.priority)
                         Text("Due").tag(TodoListViewModel.Grouping.dueDate)
+                        Text("Project").tag(TodoListViewModel.Grouping.project)
+                        Text("Context").tag(TodoListViewModel.Grouping.context)
                     }
                     .pickerStyle(.menu)
                     .fixedSize()
