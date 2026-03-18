@@ -349,6 +349,14 @@ final class TodoListViewModel: ObservableObject {
         }
     }
 
+    var allProjects: [String] {
+        Array(Set(tasks.flatMap(\.projects))).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    var allContexts: [String] {
+        Array(Set(tasks.flatMap(\.contexts))).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
     func updateBadgeCount() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!

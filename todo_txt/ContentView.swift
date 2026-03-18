@@ -113,6 +113,8 @@ struct ContentView: View {
             .sheet(item: $editingTask) { task in
                 EditTaskSheet(
                     task: task,
+                    projects: vm.allProjects,
+                    contexts: vm.allContexts,
                     onSave: { newRaw in
                         if vm.update(task, with: newRaw) {
                             return nil
@@ -365,29 +367,33 @@ struct AddTaskView: View {
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
-        HStack(spacing: 10) {
-            TextField("(A) 2025-08-11 Your task +Project @context due:2025-09-01", text: $newLine)
-                .focused($isInputFocused)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled(true)
-                .font(.body.monospaced())
-                .onSubmit(commitNew)
-            Button {
-                if newLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    isInputFocused = true
-                } else {
-                    commitNew()
+        VStack(spacing: 0) {
+            SuggestionBarView(text: $newLine, projects: vm.allProjects, contexts: vm.allContexts)
+
+            HStack(spacing: 10) {
+                TextField("(A) 2025-08-11 Your task +Project @context due:2025-09-01", text: $newLine)
+                    .focused($isInputFocused)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+                    .font(.body.monospaced())
+                    .onSubmit(commitNew)
+                Button {
+                    if newLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        isInputFocused = true
+                    } else {
+                        commitNew()
+                    }
+                } label: {
+                    Image(systemName: "plus")
+                        .imageScale(.large)
+                        .font(.title3.weight(.bold))
                 }
-            } label: {
-                Image(systemName: "plus")
-                    .imageScale(.large)
-                    .font(.title3.weight(.bold))
+                .accessibilityLabel("Add task")
+                .keyboardShortcut(.defaultAction)
             }
-            .accessibilityLabel("Add task")
-            .keyboardShortcut(.defaultAction)
+            .padding(.horizontal)
+            .padding(.vertical, 10)
         }
-        .padding(.horizontal)
-        .padding(.vertical, 10)
     }
 
     private func commitNew() {
@@ -412,3 +418,85 @@ struct AddTaskView: View {
         return "(\(defaultPriorityRaw)) \(line)"
     }
 }
+// MARK: - Autocomplete Suggestion Bar
+
+struct SuggestionBarView: View {
+    @Binding var text: String
+    let projects: [String]
+    let contexts: [String]
+
+    private var activeToken: String? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        // Find the last whitespace-separated token
+        let tokens = trimmed.split(separator: " ", omittingEmptySubsequences: false)
+        guard let last = tokens.last else { return nil }
+        let token = String(last)
+        if token.hasPrefix("+") || token.hasPrefix("@") {
+            return token
+        }
+        return nil
+    }
+
+    private var suggestions: [String] {
+        guard let token = activeToken else { return [] }
+        let prefix = token.prefix(1) // "+" or "@"
+        let partial = String(token.dropFirst()).lowercased()
+
+        let candidates: [String]
+        if prefix == "+" {
+            candidates = projects
+        } else {
+            candidates = contexts
+        }
+
+        let filtered = candidates.filter { name in
+            let lower = name.lowercased()
+            // Show all if user just typed the prefix character, otherwise filter
+            return partial.isEmpty || lower.hasPrefix(partial)
+        }
+
+        // Return full tags (e.g. "+Family"), excluding exact matches
+        return filtered.compactMap { name in
+            let full = "\(prefix)\(name)"
+            if full.lowercased() == token.lowercased() { return nil }
+            return full
+        }
+    }
+
+    var body: some View {
+        if !suggestions.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(suggestions, id: \.self) { suggestion in
+                        Button {
+                            accept(suggestion)
+                        } label: {
+                            Text(suggestion)
+                                .font(.footnote.monospaced())
+                        }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .controlSize(.small)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 6)
+            }
+        }
+    }
+
+    private func accept(_ suggestion: String) {
+        // Replace the last token with the suggestion
+        guard activeToken != nil else { return }
+        // Find the range of the last token by finding the last space
+        if let lastSpaceIndex = text.lastIndex(of: " ") {
+            let afterSpace = text.index(after: lastSpaceIndex)
+            text.replaceSubrange(afterSpace..., with: suggestion + " ")
+        } else {
+            // The entire text is the token
+            text = suggestion + " "
+        }
+    }
+}
+

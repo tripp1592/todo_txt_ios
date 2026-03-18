@@ -395,6 +395,8 @@ struct EditTaskSheet: View {
     }
 
     let task: TodoTask
+    let projects: [String]
+    let contexts: [String]
     let onSave: (String) -> String?
     let onDismiss: () -> Void
 
@@ -409,6 +411,7 @@ struct EditTaskSheet: View {
         NavigationStack {
             Form {
                 Section("Task") {
+                    SuggestionBarView(text: $taskText, projects: projects, contexts: contexts)
                     TextField("Task", text: $taskText, axis: .vertical)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
