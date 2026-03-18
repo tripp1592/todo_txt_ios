@@ -37,9 +37,7 @@ final class TodoListViewModel: ObservableObject {
 
     enum Sort: String, CaseIterable, Identifiable {
         case priority
-        case newestDate
         case dueDate
-        case text
 
         var id: String { rawValue }
     }
@@ -259,16 +257,6 @@ final class TodoListViewModel: ObservableObject {
                 return TodoParser.restString(lhs)
                     .localizedCaseInsensitiveCompare(TodoParser.restString(rhs)) == .orderedAscending
             }
-        case .newestDate:
-            visibleTasks = filteredTasks.sorted { lhs, rhs in
-                let leftDate = lhs.completionDate ?? lhs.creationDate ?? .distantPast
-                let rightDate = rhs.completionDate ?? rhs.creationDate ?? .distantPast
-                if leftDate != rightDate {
-                    return leftDate > rightDate
-                }
-                return TodoParser.restString(lhs)
-                    .localizedCaseInsensitiveCompare(TodoParser.restString(rhs)) == .orderedAscending
-            }
         case .dueDate:
             visibleTasks = filteredTasks.sorted { lhs, rhs in
                 let leftDue = lhs.extras["due"].flatMap { TodoParser.dateFormatter.date(from: $0) }
@@ -284,11 +272,6 @@ final class TodoListViewModel: ObservableObject {
                     return TodoParser.restString(lhs)
                         .localizedCaseInsensitiveCompare(TodoParser.restString(rhs)) == .orderedAscending
                 }
-            }
-        case .text:
-            visibleTasks = filteredTasks.sorted {
-                TodoParser.restString($0)
-                    .localizedCaseInsensitiveCompare(TodoParser.restString($1)) == .orderedAscending
             }
         }
 

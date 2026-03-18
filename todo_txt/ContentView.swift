@@ -37,8 +37,6 @@ struct ContentView: View {
                     Picker("Sort", selection: $vm.sort) {
                         Text("Priority").tag(TodoListViewModel.Sort.priority)
                         Text("Due").tag(TodoListViewModel.Sort.dueDate)
-                        Text("Newest").tag(TodoListViewModel.Sort.newestDate)
-                        Text("Text").tag(TodoListViewModel.Sort.text)
                     }
                     .pickerStyle(.menu)
                     .fixedSize()

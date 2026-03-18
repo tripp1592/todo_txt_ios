@@ -1,1 +1,2 @@
 - add auto suggestions
+- add group by project and context
