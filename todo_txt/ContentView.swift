@@ -275,9 +275,8 @@ struct TaskRowView: View {
                 .frame(width: 28, alignment: .leading)
                 .foregroundStyle(task.completed ? .green : .secondary)
 
-            Text(TodoParser.serialize(task))
+            coloredTaskText
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .foregroundStyle(task.completed ? .secondary : .primary)
         }
         .font(.body.monospaced())
         .padding(.vertical, 4)
@@ -309,6 +308,43 @@ struct TaskRowView: View {
             } label: {
                 Label("Delete", systemImage: "trash")
             }
+        }
+    }
+
+    private var coloredTaskText: Text {
+        if task.completed {
+            return Text(TodoParser.serialize(task))
+                .foregroundStyle(.secondary)
+        }
+
+        var parts: [Text] = []
+
+        if let priority = task.priority {
+            parts.append(Text("(\(String(priority)))").foregroundStyle(.orange))
+        }
+
+        if let creationDate = task.creationDate {
+            parts.append(Text(TodoParser.dateFormatter.string(from: creationDate)).foregroundStyle(.gray))
+        }
+
+        if !task.baseDescription.isEmpty {
+            parts.append(Text(task.baseDescription).foregroundStyle(.primary))
+        }
+
+        for project in task.projects {
+            parts.append(Text("+\(project)").foregroundStyle(.blue))
+        }
+
+        for context in task.contexts {
+            parts.append(Text("@\(context)").foregroundStyle(.purple))
+        }
+
+        for (key, value) in task.extras.sorted(by: { $0.key < $1.key }) {
+            parts.append(Text("\(key):\(value)").foregroundStyle(.orange))
+        }
+
+        return parts.enumerated().reduce(Text("")) { result, item in
+            item.offset == 0 ? item.element : result + Text(" ") + item.element
         }
     }
 
