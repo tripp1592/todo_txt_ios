@@ -272,14 +272,8 @@ struct TaskRowView: View {
     @AppStorage("autoArchiveOnComplete") private var autoArchiveOnComplete = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: task.completed ? "checkmark.square.fill" : "square")
-                .frame(width: 28, alignment: .leading)
-                .foregroundStyle(task.completed ? .green : .secondary)
-
-            coloredTaskText
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        coloredTaskText
+            .frame(maxWidth: .infinity, alignment: .leading)
         .font(.body.monospaced())
         .padding(.vertical, 4)
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
