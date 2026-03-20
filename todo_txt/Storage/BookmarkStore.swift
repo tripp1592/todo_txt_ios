@@ -3,11 +3,13 @@ import Foundation
 final class BookmarkStore {
     static let shared = BookmarkStore()
 
-    private let key = "TodoExternalBookmarkData"
+    private let todoKey = "TodoExternalBookmarkData"
+    private let archiveKey = "ArchiveExternalBookmarkData"
 
     private init() {}
 
-    func save(url: URL) throws {
+    func save(url: URL, forKey key: String? = nil) throws {
+        let storageKey = key ?? todoKey
 #if os(iOS)
         let data = try url.bookmarkData(
             options: [],
@@ -21,11 +23,12 @@ final class BookmarkStore {
             relativeTo: nil
         )
 #endif
-        UserDefaults.standard.set(data, forKey: key)
+        UserDefaults.standard.set(data, forKey: storageKey)
     }
 
-    func restore() -> URL? {
-        guard let data = UserDefaults.standard.data(forKey: key) else {
+    func restore(forKey key: String? = nil) -> URL? {
+        let storageKey = key ?? todoKey
+        guard let data = UserDefaults.standard.data(forKey: storageKey) else {
             return nil
         }
 
@@ -48,7 +51,7 @@ final class BookmarkStore {
             )
 #endif
             if stale {
-                try? save(url: url)
+                try? save(url: url, forKey: storageKey)
             }
             return url
         } catch {
@@ -56,7 +59,22 @@ final class BookmarkStore {
         }
     }
 
-    func clear() {
-        UserDefaults.standard.removeObject(forKey: key)
+    func clear(forKey key: String? = nil) {
+        let storageKey = key ?? todoKey
+        UserDefaults.standard.removeObject(forKey: storageKey)
+    }
+
+    // MARK: - Convenience for archive bookmark
+
+    func saveArchive(url: URL) throws {
+        try save(url: url, forKey: archiveKey)
+    }
+
+    func restoreArchive() -> URL? {
+        restore(forKey: archiveKey)
+    }
+
+    func clearArchive() {
+        clear(forKey: archiveKey)
     }
 }

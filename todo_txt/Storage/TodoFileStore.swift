@@ -4,11 +4,20 @@ final class TodoFileStore: TodoStore {
     static let shared = TodoFileStore()
 
     private let defaultFileName = "todo.txt"
+    private let providerNameKey = "TodoExternalProviderName"
     private var loadedEntries: [LoadedEntry] = []
     private var cachedExternalURL: URL?
+    private var cachedExternalArchiveURL: URL?
     private var hasCachedExternal = false
+    private var hasCachedExternalArchive = false
 
     private init() {}
+
+    /// The display name of the file provider (e.g. "Dropbox", "iCloud Drive")
+    /// for the current external file, or nil when using app storage.
+    var externalProviderName: String? {
+        UserDefaults.standard.string(forKey: providerNameKey)
+    }
 
     enum StoreError: LocalizedError {
         case iCloudUnavailable
@@ -40,15 +49,75 @@ final class TodoFileStore: TodoStore {
         return cachedExternalURL
     }
 
+    private var externalArchiveURL: URL? {
+        if hasCachedExternalArchive {
+            return cachedExternalArchiveURL
+        }
+        cachedExternalArchiveURL = BookmarkStore.shared.restoreArchive()
+        hasCachedExternalArchive = true
+        return cachedExternalArchiveURL
+    }
+
+    /// Whether the user needs to grant access to a done.txt file.
+    /// True when an external todo.txt is set but no archive bookmark exists.
+    var needsArchiveBookmark: Bool {
+        externalURL != nil && externalArchiveURL == nil && !isICloudURL(effectiveURL())
+    }
+
+    func setExternalArchiveURL(_ url: URL) {
+        let didStart = url.startAccessingSecurityScopedResource()
+        defer {
+            if didStart { url.stopAccessingSecurityScopedResource() }
+        }
+        try? BookmarkStore.shared.saveArchive(url: url)
+        cachedExternalArchiveURL = url
+        hasCachedExternalArchive = true
+    }
+
+    private func isICloudURL(_ url: URL) -> Bool {
+        let path = url.path
+        return path.contains("ubiquity") || path.contains("iCloud")
+    }
+
     func setExternalURL(_ url: URL?) {
+        // Read the old done.txt before switching so we can merge it forward.
+        let oldArchiveText = readCurrentArchive()
+
         if let url {
+            // The URL from fileImporter is security-scoped. We must access
+            // the resource before creating the bookmark so the system can
+            // persist the grant.
+            let didStart = url.startAccessingSecurityScopedResource()
+            defer {
+                if didStart { url.stopAccessingSecurityScopedResource() }
+            }
             try? BookmarkStore.shared.save(url: url)
+
+            // Try to capture the file provider's display name (e.g. "Dropbox").
+            let providerName = (try? url.resourceValues(forKeys: [.ubiquitousItemContainerDisplayNameKey]))?.ubiquitousItemContainerDisplayName
+            if let providerName {
+                UserDefaults.standard.set(providerName, forKey: providerNameKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: providerNameKey)
+            }
         } else {
             BookmarkStore.shared.clear()
+            BookmarkStore.shared.clearArchive()
+            UserDefaults.standard.removeObject(forKey: providerNameKey)
         }
 
         cachedExternalURL = url
         hasCachedExternal = true
+        // Clear the archive bookmark — the user will be prompted to pick done.txt
+        // for the new location if needed.
+        BookmarkStore.shared.clearArchive()
+        cachedExternalArchiveURL = nil
+        hasCachedExternalArchive = true
+
+        // Merge the old archive into the new location's done.txt.
+        if let oldText = oldArchiveText, !oldText.isEmpty {
+            mergeArchiveForward(oldText)
+        }
     }
 
     func ensureFileExistsForUI() {
@@ -119,9 +188,7 @@ final class TodoFileStore: TodoStore {
         guard !completedTasks.isEmpty else { return }
 
         let todoURL = effectiveURL()
-        let archiveURL = todoURL
-            .deletingLastPathComponent()
-            .appendingPathComponent("done.txt")
+        let archiveURL = archiveURL(relativeTo: todoURL)
         let archiveChunk = completedTasks.map(TodoParser.serialize).joined(separator: "\n").appending("\n")
         let previousArchiveText: String? = try withSecurityScope(url: archiveURL) {
             guard FileManager.default.fileExists(atPath: archiveURL.path) else { return nil }
@@ -173,11 +240,77 @@ final class TodoFileStore: TodoStore {
     }
 
     private func ensureFileExists() {
-        let url = effectiveURL()
+        // Only create the internal file. Never overwrite an external file —
+        // it may appear missing simply because the security scope isn't active yet.
+        guard externalURL == nil else { return }
+        let url = internalURL
         guard !FileManager.default.fileExists(atPath: url.path) else { return }
+        try? "".write(to: url, atomically: true, encoding: .utf8)
+    }
 
-        _ = withSecurityScope(url: url) {
-            try? "".write(to: url, atomically: true, encoding: .utf8)
+    private var internalArchiveURL: URL {
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        return documentsURL.appendingPathComponent("done.txt")
+    }
+
+    private func archiveURL(relativeTo todoURL: URL) -> URL {
+        let path = todoURL.path
+
+        // App-internal files — done.txt lives alongside todo.txt in app storage.
+        if let appDocuments = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
+           path.hasPrefix(appDocuments.path) {
+            return internalArchiveURL
+        }
+
+        // iCloud files — we have directory access.
+        if isICloudURL(todoURL) {
+            return todoURL.deletingLastPathComponent().appendingPathComponent("done.txt")
+        }
+
+        // External files (Dropbox, etc.) — use the user-granted archive bookmark
+        // if available, otherwise fall back to app storage.
+        if let archiveURL = externalArchiveURL {
+            return archiveURL
+        }
+
+        return internalArchiveURL
+    }
+
+    /// Reads the done.txt that sits next to the *current* effective todo.txt.
+    private func readCurrentArchive() -> String? {
+        let url = archiveURL(relativeTo: effectiveURL())
+        return withSecurityScope(url: url) {
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return try? String(contentsOf: url, encoding: .utf8)
+        }
+    }
+
+    /// Appends old archive text to the done.txt at the *new* effective location.
+    /// Avoids duplicating lines that already exist in the destination.
+    private func mergeArchiveForward(_ oldText: String) {
+        let newTodoURL = effectiveURL()
+        let newArchiveURL = archiveURL(relativeTo: newTodoURL)
+
+        let existingText: String? = withSecurityScope(url: newArchiveURL) {
+            guard FileManager.default.fileExists(atPath: newArchiveURL.path) else { return nil }
+            return try? String(contentsOf: newArchiveURL, encoding: .utf8)
+        }
+
+        let existingLines = Set(
+            (existingText ?? "").split(whereSeparator: \.isNewline).map(String.init)
+        )
+
+        let newLines = oldText.split(whereSeparator: \.isNewline)
+            .map(String.init)
+            .filter { !existingLines.contains($0) }
+
+        guard !newLines.isEmpty else { return }
+
+        let chunk = newLines.joined(separator: "\n").appending("\n")
+        let merged = (existingText ?? "") + chunk
+
+        _ = withSecurityScope(url: newArchiveURL) {
+            try? merged.write(to: newArchiveURL, atomically: true, encoding: .utf8)
         }
     }
 }

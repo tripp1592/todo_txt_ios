@@ -26,29 +26,75 @@ struct SettingsSheet: View {
     }
 
     @AppStorage("defaultPriority") private var defaultPriorityRaw = ""
+    @AppStorage("autoCreationDate") private var autoCreationDate = true
+    @AppStorage("archivingEnabled") private var archivingEnabled = true
     @AppStorage("autoArchiveOnComplete") private var autoArchiveOnComplete = false
     @AppStorage("iCloudSyncEnabled") private var iCloudSyncEnabled = false
     @Environment(\.openURL) private var openURL
     @State private var notificationPermissionState: NotificationPermissionState = .unknown
     @State private var showUserGuide = false
 
-    let currentFileName: String
+    let currentFileURL: URL
     let onChooseFile: () -> Void
     let onUseLocalFile: () -> Void
+    let onExportFile: () -> Void
     let onArchiveNow: () -> Void
     let onICloudSyncChanged: (Bool) -> Void
+
+    private var currentFileLocation: String {
+        let path = currentFileURL.path
+
+        // Check if it's the app's internal documents directory
+        if let appDocuments = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
+           path.hasPrefix(appDocuments.path) {
+            return "App Storage"
+        }
+
+        // Use the stored provider display name if available (e.g. "Dropbox")
+        if let providerName = TodoFileStore.shared.externalProviderName {
+            return providerName
+        }
+
+        // Check for iCloud ubiquity container
+        if path.contains("ubiquity") || path.contains("iCloud") {
+            return "iCloud Drive"
+        }
+
+        return "External File"
+    }
 
     var body: some View {
         NavigationStack {
             List {
-                Section("File") {
-                    LabeledContent("Current", value: currentFileName)
+                Section {
+                    Button("User Guide") {
+                        showUserGuide = true
+                    }
+                }
+
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("File")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Text(currentFileURL.path)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.primary)
+                            .textSelection(.enabled)
+                        LabeledContent("Location", value: currentFileLocation)
+                    }
+                    .padding(.vertical, 2)
                     Toggle("Sync with iCloud Drive", isOn: $iCloudSyncEnabled)
                         .onChange(of: iCloudSyncEnabled) { _, enabled in
                             onICloudSyncChanged(enabled)
                         }
-                    Button("Create New .txt File", action: onUseLocalFile)
-                    Button("Choose .txt File", action: onChooseFile)
+                    Button("Import a TODO.txt File", action: onChooseFile)
+                    Button("Create New TODO.txt File", action: onUseLocalFile)
+                    Button("Export TODO.txt Copy", action: onExportFile)
+                } header: {
+                    Text("File")
+                } footer: {
+                    Text("Import sets the selected file as your default. All changes are saved directly to it.")
                 }
 
                 Section("Tasks") {
@@ -60,8 +106,12 @@ struct SettingsSheet: View {
                         Text("D – Low").tag("D")
                         Text("E – Lowest").tag("E")
                     }
-                    Toggle("Auto Archive Completed", isOn: $autoArchiveOnComplete)
-                    Button("Archive Now", action: onArchiveNow)
+                    Toggle("Add Creation Date Automatically", isOn: $autoCreationDate)
+                    Toggle("Archive Completed to done.txt", isOn: $archivingEnabled)
+                    if archivingEnabled {
+                        Toggle("Auto Archive on Complete", isOn: $autoArchiveOnComplete)
+                        Button("Archive Now", action: onArchiveNow)
+                    }
                 }
 
                 Section("Notifications") {
@@ -74,12 +124,6 @@ struct SettingsSheet: View {
                         Button("Open Notification Settings") {
                             openNotificationSettings()
                         }
-                    }
-                }
-
-                Section("Help") {
-                    Button("User Guide") {
-                        showUserGuide = true
                     }
                 }
             }
@@ -249,10 +293,12 @@ struct TodoTxtGuideSheet: View {
                 Section("Using This App") {
                     Label("Type a task in the text field at the bottom and tap + to add it.", systemImage: "plus")
                     Label("Long press a task to mark it complete, edit, or delete.", systemImage: "hand.tap")
-                    Label("Swipe left on a task to edit. Swipe right to delete.", systemImage: "hand.draw")
+                    Label("Swipe right on a task to edit. Swipe left to delete.", systemImage: "hand.draw")
                     Label("Use the sort menu to order tasks by priority, date, or text.", systemImage: "arrow.up.arrow.down")
-                    Label("Archive moves completed tasks from todo.txt to done.txt.", systemImage: "archivebox")
-                    Label("Choose any .txt file from Files, or sync with iCloud Drive.", systemImage: "folder")
+                    Label("Creation dates are added automatically by default. You can turn this off in Settings.", systemImage: "calendar.badge.plus")
+                    Label("Archiving is optional. When enabled, completed tasks move from todo.txt to done.txt.", systemImage: "archivebox")
+                    Label("Import a todo.txt from Dropbox, iCloud, or other providers in Settings. Export a copy anytime.", systemImage: "folder")
+                    Label("When importing from an external provider, you can also link a done.txt for archiving.", systemImage: "doc.on.doc")
                 }
 
                 Section("Full Example") {

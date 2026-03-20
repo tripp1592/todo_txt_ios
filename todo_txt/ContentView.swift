@@ -8,12 +8,16 @@ struct ContentView: View {
     @AppStorage("iCloudSyncEnabled") private var iCloudSyncEnabled = false
     
     @State private var showImporter = false
+    @State private var showArchiveImporter = false
+    @State private var showArchivePrompt = false
+    @State private var showExporter = false
     @State private var showSettings = false
     @State private var showOnboarding = false
     @State private var openImporterAfterOnboarding = false
     @State private var didRunInitialSetup = false
     @State private var alertText: String?
     @State private var editingTask: TodoTask?
+    @State private var exportDocument: TodoTextDocument?
     
     @Environment(\.scenePhase) private var scenePhase
 
@@ -90,18 +94,6 @@ struct ContentView: View {
             .navigationTitle("Tasks")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        showImporter = true
-                    } label: {
-                        Label("Choose File", systemImage: "folder")
-                    }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    ShareLink(item: TodoFileStore.shared.fileURL()) {
-                        Image(systemName: "square.and.arrow.up")
-                    }
-                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         showSettings = true
@@ -143,7 +135,7 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showSettings) {
                 SettingsSheet(
-                    currentFileName: vmStoreFileName,
+                    currentFileURL: TodoFileStore.shared.fileURL(),
                     onChooseFile: {
                         iCloudSyncEnabled = false
                         showSettings = false
@@ -152,6 +144,10 @@ struct ContentView: View {
                     onUseLocalFile: {
                         iCloudSyncEnabled = false
                         vm.clearExternalURL()
+                        showSettings = false
+                    },
+                    onExportFile: {
+                        exportCurrentFile()
                         showSettings = false
                     },
                     onArchiveNow: {
@@ -176,6 +172,17 @@ struct ContentView: View {
             openImporterAfterOnboarding = false
             showImporter = true
         }
+        .fileExporter(
+            isPresented: $showExporter,
+            document: exportDocument,
+            contentType: .plainText,
+            defaultFilename: "todo.txt"
+        ) { result in
+            if case .failure(let error) = result {
+                alertText = error.localizedDescription
+            }
+            exportDocument = nil
+        }
         .fileImporter(
             isPresented: $showImporter,
             allowedContentTypes: [UTType.plainText],
@@ -190,9 +197,36 @@ struct ContentView: View {
                 }
                 iCloudSyncEnabled = false
                 vm.setExternalURL(url)
+                if TodoFileStore.shared.needsArchiveBookmark {
+                    showArchivePrompt = true
+                }
             case .failure(let error):
                 alertText = error.localizedDescription
             }
+        }
+        .fileImporter(
+            isPresented: $showArchiveImporter,
+            allowedContentTypes: [UTType.plainText],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                TodoFileStore.shared.setExternalArchiveURL(url)
+            case .failure(let error):
+                alertText = error.localizedDescription
+            }
+        }
+        .alert(
+            "Link done.txt",
+            isPresented: $showArchivePrompt
+        ) {
+            Button("Select done.txt") {
+                showArchiveImporter = true
+            }
+            Button("Skip", role: .cancel) {}
+        } message: {
+            Text("Would you like to select a done.txt file in the same folder? Archived tasks will be saved there. If you skip, archived tasks will be stored locally in the app.")
         }
         .alert(
             "Notice",
@@ -237,6 +271,15 @@ struct ContentView: View {
         }
     }
 
+    private func exportCurrentFile() {
+        let url = TodoFileStore.shared.fileURL()
+        let content: String = withSecurityScope(url: url) {
+            (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        }
+        exportDocument = TodoTextDocument(text: content)
+        showExporter = true
+    }
+
     private func archiveNow() {
         let count = vm.archiveCompleted()
         if count > 0 {
@@ -269,6 +312,7 @@ struct TaskRowView: View {
     @ObservedObject var vm: TodoListViewModel
     let onEdit: () -> Void
     
+    @AppStorage("archivingEnabled") private var archivingEnabled = true
     @AppStorage("autoArchiveOnComplete") private var autoArchiveOnComplete = false
 
     var body: some View {
@@ -346,7 +390,7 @@ struct TaskRowView: View {
 
     private func handleToggle() {
         let justCompleted = vm.toggle(task)
-        if autoArchiveOnComplete, justCompleted {
+        if archivingEnabled, autoArchiveOnComplete, justCompleted {
             _ = vm.archiveCompleted()
         }
     }
@@ -357,6 +401,7 @@ struct AddTaskView: View {
     @Binding var alertText: String?
     
     @AppStorage("defaultPriority") private var defaultPriorityRaw = ""
+    @AppStorage("autoCreationDate") private var autoCreationDate = true
     @State private var newLine = ""
     @FocusState private var isInputFocused: Bool
 
@@ -397,7 +442,8 @@ struct AddTaskView: View {
             return
         }
 
-        let lineToAdd = lineWithDefaultPriorityIfNeeded(line)
+        var lineToAdd = lineWithDefaultPriorityIfNeeded(line)
+        lineToAdd = lineWithCreationDateIfNeeded(lineToAdd)
         if let errorMessage = vm.add(lineToAdd) {
             alertText = errorMessage
         } else {
@@ -410,6 +456,21 @@ struct AddTaskView: View {
         guard !parsed.completed, parsed.priority == nil else { return line }
         guard defaultPriorityRaw.count == 1 else { return line }
         return "(\(defaultPriorityRaw)) \(line)"
+    }
+
+    private func lineWithCreationDateIfNeeded(_ line: String) -> String {
+        guard autoCreationDate else { return line }
+        guard let parsed = try? TodoParser.parse(line: line) else { return line }
+        guard !parsed.completed, parsed.creationDate == nil else { return line }
+
+        let today = TodoParser.dateFormatter.string(from: Date())
+
+        // Insert the date after the priority if present, otherwise at the start.
+        if let priority = parsed.priority {
+            return "(\(priority)) \(today) \(line.dropFirst(4))"
+        } else {
+            return "\(today) \(line)"
+        }
     }
 }
 // MARK: - Autocomplete Suggestion Bar
@@ -491,6 +552,30 @@ struct SuggestionBarView: View {
             // The entire text is the token
             text = suggestion + " "
         }
+    }
+}
+
+// MARK: - File Export Document
+
+struct TodoTextDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.plainText] }
+
+    let text: String
+
+    init(text: String) {
+        self.text = text
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        if let data = configuration.file.regularFileContents {
+            text = String(data: data, encoding: .utf8) ?? ""
+        } else {
+            text = ""
+        }
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: Data(text.utf8))
     }
 }
 
