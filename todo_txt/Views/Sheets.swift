@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import UserNotifications
 #if os(iOS)
 import UIKit
@@ -33,9 +34,10 @@ struct SettingsSheet: View {
     @Environment(\.openURL) private var openURL
     @State private var notificationPermissionState: NotificationPermissionState = .unknown
     @State private var showUserGuide = false
+    @State private var showImporter = false
 
     let currentFileURL: URL
-    let onChooseFile: () -> Void
+    let onImportFile: (URL) -> Void
     let onUseLocalFile: () -> Void
     let onExportFile: () -> Void
     let onArchiveNow: () -> Void
@@ -88,7 +90,9 @@ struct SettingsSheet: View {
                         .onChange(of: iCloudSyncEnabled) { _, enabled in
                             onICloudSyncChanged(enabled)
                         }
-                    Button("Import a TODO.txt File", action: onChooseFile)
+                    Button("Import a TODO.txt File") {
+                        showImporter = true
+                    }
                     Button("Create New TODO.txt File", action: onUseLocalFile)
                     Button("Export TODO.txt Copy", action: onExportFile)
                 } header: {
@@ -134,6 +138,15 @@ struct SettingsSheet: View {
             }
             .sheet(isPresented: $showUserGuide) {
                 TodoTxtGuideSheet()
+            }
+            .fileImporter(
+                isPresented: $showImporter,
+                allowedContentTypes: [UTType.plainText],
+                allowsMultipleSelection: false
+            ) { result in
+                if case .success(let urls) = result, let url = urls.first {
+                    onImportFile(url)
+                }
             }
         }
     }

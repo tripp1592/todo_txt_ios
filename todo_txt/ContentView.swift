@@ -8,8 +8,9 @@ struct ContentView: View {
     @AppStorage("iCloudSyncEnabled") private var iCloudSyncEnabled = false
     
     @State private var showImporter = false
-    @State private var showArchiveImporter = false
+    @State private var showArchiveExporter = false
     @State private var showArchivePrompt = false
+    @State private var archiveDocument: TodoTextDocument?
     @State private var showExporter = false
     @State private var showSettings = false
     @State private var showOnboarding = false
@@ -118,7 +119,12 @@ struct ContentView: View {
                     }
                 )
             }
-            .sheet(isPresented: $showOnboarding) {
+            .sheet(isPresented: $showOnboarding, onDismiss: {
+            if openImporterAfterOnboarding {
+                openImporterAfterOnboarding = false
+                showImporter = true
+            }
+        }) {
                 FirstLaunchSheet(
                     onUseLocal: {
                         vm.clearExternalURL()
@@ -127,19 +133,22 @@ struct ContentView: View {
                         showOnboarding = false
                     },
                     onImportExistingFile: {
-                        openImporterAfterOnboarding = true
                         hasSeenOnboarding = true
                         showOnboarding = false
+                        openImporterAfterOnboarding = true
                     }
                 )
             }
             .sheet(isPresented: $showSettings) {
                 SettingsSheet(
                     currentFileURL: TodoFileStore.shared.fileURL(),
-                    onChooseFile: {
+                    onImportFile: { url in
                         iCloudSyncEnabled = false
+                        vm.setExternalURL(url)
+                        if TodoFileStore.shared.needsArchiveBookmark {
+                            showArchivePrompt = true
+                        }
                         showSettings = false
-                        showImporter = true
                     },
                     onUseLocalFile: {
                         iCloudSyncEnabled = false
@@ -166,11 +175,6 @@ struct ContentView: View {
             if newPhase == .active {
                 vm.updateBadgeCount()
             }
-        }
-        .onChange(of: showOnboarding) { _, isShowing in
-            guard !isShowing, openImporterAfterOnboarding else { return }
-            openImporterAfterOnboarding = false
-            showImporter = true
         }
         .fileExporter(
             isPresented: $showExporter,
@@ -204,29 +208,31 @@ struct ContentView: View {
                 alertText = error.localizedDescription
             }
         }
-        .fileImporter(
-            isPresented: $showArchiveImporter,
-            allowedContentTypes: [UTType.plainText],
-            allowsMultipleSelection: false
+        .fileExporter(
+            isPresented: $showArchiveExporter,
+            document: archiveDocument,
+            contentType: .plainText,
+            defaultFilename: "done.txt"
         ) { result in
             switch result {
-            case .success(let urls):
-                guard let url = urls.first else { return }
+            case .success(let url):
                 TodoFileStore.shared.setExternalArchiveURL(url)
             case .failure(let error):
                 alertText = error.localizedDescription
             }
+            archiveDocument = nil
         }
         .alert(
             "Link done.txt",
             isPresented: $showArchivePrompt
         ) {
-            Button("Select done.txt") {
-                showArchiveImporter = true
+            Button("Create or Select done.txt") {
+                archiveDocument = TodoTextDocument(text: "")
+                showArchiveExporter = true
             }
             Button("Skip", role: .cancel) {}
         } message: {
-            Text("Would you like to select a done.txt file in the same folder? Archived tasks will be saved there. If you skip, archived tasks will be stored locally in the app.")
+            Text("Would you like to create or select a done.txt file in the same folder? Archived tasks will be saved there. If you skip, archived tasks will be stored locally in the app.")
         }
         .alert(
             "Notice",
@@ -578,4 +584,3 @@ struct TodoTextDocument: FileDocument {
         FileWrapper(regularFileWithContents: Data(text.utf8))
     }
 }
-
