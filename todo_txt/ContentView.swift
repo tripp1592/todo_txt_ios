@@ -84,6 +84,10 @@ struct ContentView: View {
                     }
                 }
                 .listStyle(.plain)
+                .scrollDismissesKeyboard(.interactively)
+                .onTapGesture {
+                    dismissKeyboard()
+                }
 
                 AddTaskView(vm: vm, alertText: $alertText)
 
@@ -262,6 +266,10 @@ struct ContentView: View {
         TodoFileStore.shared.fileURL().lastPathComponent
     }
 
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
     private func runInitialSetupIfNeeded() {
         guard !didRunInitialSetup else { return }
         didRunInitialSetup = true
@@ -422,6 +430,14 @@ struct AddTaskView: View {
                     .autocorrectionDisabled(true)
                     .font(.body.monospaced())
                     .onSubmit(commitNew)
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("Done") {
+                                isInputFocused = false
+                            }
+                        }
+                    }
                 Button {
                     if newLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         isInputFocused = true
