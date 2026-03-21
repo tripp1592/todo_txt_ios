@@ -430,14 +430,6 @@ struct AddTaskView: View {
                     .autocorrectionDisabled(true)
                     .font(.body.monospaced())
                     .onSubmit(commitNew)
-                    .toolbar {
-                        ToolbarItemGroup(placement: .keyboard) {
-                            Spacer()
-                            Button("Done") {
-                                isInputFocused = false
-                            }
-                        }
-                    }
                 Button {
                     if newLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         isInputFocused = true
