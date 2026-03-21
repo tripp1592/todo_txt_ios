@@ -394,7 +394,14 @@ struct TaskRowView: View {
         }
 
         for (key, value) in task.extras.sorted(by: { $0.key < $1.key }) {
-            parts.append(Text("\(key):\(value)").foregroundStyle(.orange))
+            let color: Color = {
+                if key == "due", let dueDate = TodoParser.dateFormatter.date(from: value) {
+                    let today = Calendar.current.startOfDay(for: Date())
+                    return dueDate <= today ? .red : .orange
+                }
+                return .orange
+            }()
+            parts.append(Text("\(key):\(value)").foregroundStyle(color))
         }
 
         return parts.enumerated().reduce(Text("")) { result, item in
