@@ -79,6 +79,14 @@ final class TodoFileStore: TodoStore {
         return path.contains("ubiquity") || path.contains("iCloud")
     }
 
+    /// Whether the URL points to a location inside the app's own sandbox.
+    private func isAppInternalURL(_ url: URL) -> Bool {
+        guard let appDocuments = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return false
+        }
+        return url.path.hasPrefix(appDocuments.path)
+    }
+
     func setExternalURL(_ url: URL?) {
         // Read the old done.txt before switching so we can merge it forward.
         let oldArchiveText = readCurrentArchive()
@@ -178,8 +186,9 @@ final class TodoFileStore: TodoStore {
         }
 
         let text = lines.joined(separator: "\n").appending("\n")
+        let atomic = isAppInternalURL(url)
         try withSecurityScope(url: url) {
-            try text.write(to: url, atomically: true, encoding: .utf8)
+            try text.write(to: url, atomically: atomic, encoding: .utf8)
         }
         loadedEntries = newLoadedEntries
     }
@@ -195,16 +204,17 @@ final class TodoFileStore: TodoStore {
             return try String(contentsOf: archiveURL, encoding: .utf8)
         }
 
+        let atomicArchive = isAppInternalURL(archiveURL)
         do {
             try withSecurityScope(url: archiveURL) {
                 let updatedArchiveText = (previousArchiveText ?? "") + archiveChunk
-                try updatedArchiveText.write(to: archiveURL, atomically: true, encoding: .utf8)
+                try updatedArchiveText.write(to: archiveURL, atomically: atomicArchive, encoding: .utf8)
             }
             try save(remainingTasks)
         } catch {
             try? withSecurityScope(url: archiveURL) {
                 if let previousArchiveText {
-                    try previousArchiveText.write(to: archiveURL, atomically: true, encoding: .utf8)
+                    try previousArchiveText.write(to: archiveURL, atomically: atomicArchive, encoding: .utf8)
                 } else if FileManager.default.fileExists(atPath: archiveURL.path) {
                     try FileManager.default.removeItem(at: archiveURL)
                 }
@@ -309,8 +319,9 @@ final class TodoFileStore: TodoStore {
         let chunk = newLines.joined(separator: "\n").appending("\n")
         let merged = (existingText ?? "") + chunk
 
+        let atomic = isAppInternalURL(newArchiveURL)
         _ = withSecurityScope(url: newArchiveURL) {
-            try? merged.write(to: newArchiveURL, atomically: true, encoding: .utf8)
+            try? merged.write(to: newArchiveURL, atomically: atomic, encoding: .utf8)
         }
     }
 }

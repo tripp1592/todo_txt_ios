@@ -370,13 +370,15 @@ struct FirstLaunchSheet: View {
 }
 
 enum TaskEditFormatter {
+    /// Returns the editable text for the task body, **excluding** project tags.
+    /// Projects are managed separately in the edit sheet.
     static func editableTaskText(for task: TodoTask) -> String {
         var bodyTokens: [String] = []
 
         if !task.baseDescription.isEmpty {
             bodyTokens.append(task.baseDescription)
         }
-        bodyTokens.append(contentsOf: task.projects.map { "+\($0)" })
+        // Projects are intentionally omitted — they are managed via the Projects picker.
         bodyTokens.append(contentsOf: task.contexts.map { "@\($0)" })
         bodyTokens.append(contentsOf: task.extras
             .filter { $0.key != "due" && $0.key != "t" }
@@ -390,11 +392,14 @@ enum TaskEditFormatter {
         task: TodoTask,
         taskText: String,
         priorityRaw: String,
+        selectedProjects: [String],
         dueDateText: String,
         thresholdDateText: String
     ) -> String {
-        let editableBody = taskText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let (description, projects, contexts, parsedExtras) = TodoParser.parseRest(editableBody)
+        let editableBody = taskText
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let (description, textProjects, contexts, parsedExtras) = TodoParser.parseRest(editableBody)
         var parts: [String] = []
 
         if task.completed {
@@ -412,11 +417,14 @@ enum TaskEditFormatter {
             }
         }
 
+        // Merge projects from the picker and any typed in the text field
+        let allProjects = Set(selectedProjects).union(textProjects)
+
         var bodyTokens: [String] = []
         if !description.isEmpty {
             bodyTokens.append(description)
         }
-        bodyTokens.append(contentsOf: projects.map { "+\($0)" })
+        bodyTokens.append(contentsOf: allProjects.sorted().map { "+\($0)" })
         bodyTokens.append(contentsOf: contexts.map { "@\($0)" })
 
         var extras = parsedExtras
@@ -461,6 +469,8 @@ struct EditTaskSheet: View {
 
     @State private var priorityRaw = ""
     @State private var taskText = ""
+    @State private var selectedProjects: Set<String> = []
+    @State private var newProjectName = ""
     @State private var dueDateText = ""
     @State private var thresholdDateText = ""
     @State private var activeDateField: DateField?
@@ -484,6 +494,42 @@ struct EditTaskSheet: View {
                         Text("C – Normal").tag("C")
                         Text("D – Low").tag("D")
                         Text("E – Lowest").tag("E")
+                    }
+                }
+
+                Section("Projects") {
+                    let allProjects = allAvailableProjects
+                    if !allProjects.isEmpty {
+                        FlowLayout(spacing: 8) {
+                            ForEach(allProjects, id: \.self) { project in
+                                Button {
+                                    if selectedProjects.contains(project) {
+                                        selectedProjects.remove(project)
+                                    } else {
+                                        selectedProjects.insert(project)
+                                    }
+                                } label: {
+                                    Text("+\(project)")
+                                        .font(.subheadline.monospaced())
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(selectedProjects.contains(project) ? Color.blue : Color(.systemGray5))
+                                        .foregroundStyle(selectedProjects.contains(project) ? .white : .primary)
+                                        .clipShape(Capsule())
+                                }
+                            }
+                        }
+                    }
+                    HStack {
+                        TextField("New project name", text: $newProjectName)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled(true)
+                        Button {
+                            addNewProject()
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                        }
+                        .disabled(newProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
 
@@ -539,6 +585,7 @@ struct EditTaskSheet: View {
                 guard taskText.isEmpty else { return }
                 taskText = TaskEditFormatter.editableTaskText(for: task)
                 priorityRaw = task.priority.map(String.init) ?? ""
+                selectedProjects = Set(task.projects)
                 dueDateText = task.extras["due"] ?? ""
                 thresholdDateText = task.extras["t"] ?? ""
             }
@@ -585,14 +632,76 @@ struct EditTaskSheet: View {
         return nil
     }
 
+    /// All known projects plus any the user has selected (in case they were removed from other tasks).
+    private var allAvailableProjects: [String] {
+        let combined = Set(projects).union(selectedProjects)
+        return combined.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func addNewProject() {
+        let name = newProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "")
+        guard !name.isEmpty else { return }
+        // Strip leading + if the user typed it
+        let clean = name.hasPrefix("+") ? String(name.dropFirst()) : name
+        guard !clean.isEmpty else { return }
+        selectedProjects.insert(clean)
+        newProjectName = ""
+    }
+
     private func composedRawLine() -> String {
         TaskEditFormatter.composedRawLine(
             task: task,
             taskText: taskText,
             priorityRaw: priorityRaw,
+            selectedProjects: Array(selectedProjects),
             dueDateText: dueDateText,
             thresholdDateText: thresholdDateText
         )
+    }
+}
+
+// MARK: - Flow Layout for wrapping chips
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth, x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+
+        return CGSize(width: maxWidth, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x: CGFloat = bounds.minX
+        var y: CGFloat = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX, x > bounds.minX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }
 

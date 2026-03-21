@@ -223,9 +223,8 @@ final class TodoListViewModel: ObservableObject {
 
         do {
             try store.archive(completedTasks, removing: remainingTasks)
-            tasks = remainingTasks
-            lastError = nil
-            updateBadgeCount()
+            // Reload from disk to ensure in-memory state matches what was persisted.
+            load()
             return completedTasks.count
         } catch {
             lastError = "Failed to archive: \(error.localizedDescription)"
