@@ -517,6 +517,7 @@ struct EditTaskSheet: View {
                                         .foregroundStyle(selectedProjects.contains(project) ? .white : .primary)
                                         .clipShape(Capsule())
                                 }
+                                .buttonStyle(.plain)
                             }
                         }
                     }
