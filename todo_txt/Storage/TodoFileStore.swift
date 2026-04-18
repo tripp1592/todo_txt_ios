@@ -135,8 +135,8 @@ final class TodoFileStore: TodoStore {
     func load() throws -> [TodoTask] {
         ensureFileExists()
         let url = effectiveURL()
-        let content: String = try withSecurityScope(url: url) {
-            try String(contentsOf: url, encoding: .utf8)
+        let content: String = try coordinatedRead(url: url) { readURL in
+            try String(contentsOf: readURL, encoding: .utf8)
         }
 
         var tasks: [TodoTask] = []
@@ -187,8 +187,8 @@ final class TodoFileStore: TodoStore {
 
         let text = lines.joined(separator: "\n").appending("\n")
         let atomic = isAppInternalURL(url)
-        try withSecurityScope(url: url) {
-            try text.write(to: url, atomically: atomic, encoding: .utf8)
+        try coordinatedWrite(url: url) { writeURL in
+            try text.write(to: writeURL, atomically: atomic, encoding: .utf8)
         }
         loadedEntries = newLoadedEntries
     }
@@ -199,24 +199,24 @@ final class TodoFileStore: TodoStore {
         let todoURL = effectiveURL()
         let archiveURL = archiveURL(relativeTo: todoURL)
         let archiveChunk = completedTasks.map(TodoParser.serialize).joined(separator: "\n").appending("\n")
-        let previousArchiveText: String? = try withSecurityScope(url: archiveURL) {
-            guard FileManager.default.fileExists(atPath: archiveURL.path) else { return nil }
-            return try String(contentsOf: archiveURL, encoding: .utf8)
+        let previousArchiveText: String? = try coordinatedRead(url: archiveURL) { readURL in
+            guard FileManager.default.fileExists(atPath: readURL.path) else { return nil }
+            return try String(contentsOf: readURL, encoding: .utf8)
         }
 
         let atomicArchive = isAppInternalURL(archiveURL)
         do {
-            try withSecurityScope(url: archiveURL) {
+            try coordinatedWrite(url: archiveURL) { writeURL in
                 let updatedArchiveText = (previousArchiveText ?? "") + archiveChunk
-                try updatedArchiveText.write(to: archiveURL, atomically: atomicArchive, encoding: .utf8)
+                try updatedArchiveText.write(to: writeURL, atomically: atomicArchive, encoding: .utf8)
             }
             try save(remainingTasks)
         } catch {
-            try? withSecurityScope(url: archiveURL) {
+            try? coordinatedWrite(url: archiveURL) { writeURL in
                 if let previousArchiveText {
-                    try previousArchiveText.write(to: archiveURL, atomically: atomicArchive, encoding: .utf8)
-                } else if FileManager.default.fileExists(atPath: archiveURL.path) {
-                    try FileManager.default.removeItem(at: archiveURL)
+                    try previousArchiveText.write(to: writeURL, atomically: atomicArchive, encoding: .utf8)
+                } else if FileManager.default.fileExists(atPath: writeURL.path) {
+                    try FileManager.default.removeItem(at: writeURL)
                 }
             }
             throw error
@@ -289,9 +289,9 @@ final class TodoFileStore: TodoStore {
     /// Reads the done.txt that sits next to the *current* effective todo.txt.
     private func readCurrentArchive() -> String? {
         let url = archiveURL(relativeTo: effectiveURL())
-        return withSecurityScope(url: url) {
-            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-            return try? String(contentsOf: url, encoding: .utf8)
+        return try? coordinatedRead(url: url) { readURL in
+            guard FileManager.default.fileExists(atPath: readURL.path) else { return nil }
+            return try? String(contentsOf: readURL, encoding: .utf8)
         }
     }
 
@@ -301,9 +301,9 @@ final class TodoFileStore: TodoStore {
         let newTodoURL = effectiveURL()
         let newArchiveURL = archiveURL(relativeTo: newTodoURL)
 
-        let existingText: String? = withSecurityScope(url: newArchiveURL) {
-            guard FileManager.default.fileExists(atPath: newArchiveURL.path) else { return nil }
-            return try? String(contentsOf: newArchiveURL, encoding: .utf8)
+        let existingText: String? = try? coordinatedRead(url: newArchiveURL) { readURL in
+            guard FileManager.default.fileExists(atPath: readURL.path) else { return nil }
+            return try? String(contentsOf: readURL, encoding: .utf8)
         }
 
         let existingLines = Set(
@@ -320,8 +320,8 @@ final class TodoFileStore: TodoStore {
         let merged = (existingText ?? "") + chunk
 
         let atomic = isAppInternalURL(newArchiveURL)
-        _ = withSecurityScope(url: newArchiveURL) {
-            try? merged.write(to: newArchiveURL, atomically: atomic, encoding: .utf8)
+        _ = try? coordinatedWrite(url: newArchiveURL) { writeURL in
+            try merged.write(to: writeURL, atomically: atomic, encoding: .utf8)
         }
     }
 }

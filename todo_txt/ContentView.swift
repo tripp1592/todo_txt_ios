@@ -9,6 +9,7 @@ struct ContentView: View {
     
     @State private var showImporter = false
     @State private var showArchiveExporter = false
+    @State private var showArchiveImporter = false
     @State private var showArchivePrompt = false
     @State private var archiveDocument: TodoTextDocument?
     @State private var showExporter = false
@@ -226,17 +227,31 @@ struct ContentView: View {
             }
             archiveDocument = nil
         }
+        .fileImporter(
+            isPresented: $showArchiveImporter,
+            allowedContentTypes: [UTType.plainText],
+            allowsMultipleSelection: false
+        ) { result in
+            if case .success(let urls) = result, let url = urls.first {
+                TodoFileStore.shared.setExternalArchiveURL(url)
+            } else if case .failure(let error) = result {
+                alertText = error.localizedDescription
+            }
+        }
         .alert(
             "Link done.txt",
             isPresented: $showArchivePrompt
         ) {
-            Button("Create or Select done.txt") {
+            Button("Select Existing done.txt") {
+                showArchiveImporter = true
+            }
+            Button("Create New done.txt") {
                 archiveDocument = TodoTextDocument(text: "")
                 showArchiveExporter = true
             }
             Button("Skip", role: .cancel) {}
         } message: {
-            Text("Would you like to create or select a done.txt file in the same folder? Archived tasks will be saved there. If you skip, archived tasks will be stored locally in the app.")
+            Text("Would you like to link a done.txt file for archiving completed tasks? You can select an existing one or create a new one. If you skip, archived tasks will be stored locally in the app.")
         }
         .alert(
             "Notice",
@@ -287,9 +302,9 @@ struct ContentView: View {
 
     private func exportCurrentFile() {
         let url = TodoFileStore.shared.fileURL()
-        let content: String = withSecurityScope(url: url) {
-            (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        }
+        let content: String = (try? coordinatedRead(url: url) { readURL in
+            try String(contentsOf: readURL, encoding: .utf8)
+        }) ?? ""
         exportDocument = TodoTextDocument(text: content)
         showExporter = true
     }
